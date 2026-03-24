@@ -32,6 +32,8 @@ OUTPUT_FILE   = "output.pptx"
 
 # Text in the slide that gets replaced with the Excel tab name.
 NAME_PLACEHOLDER = "{{name}}"
+# Default font size (pt) for inserted data rows when none can be detected from the template.
+DEFAULT_FONT_SIZE_PT = 10
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -39,6 +41,15 @@ NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def detect_font_size(tr):
+    """Return font size in points from the first <a:rPr sz=...> found in *tr*, or None."""
+    for rPr in tr.iter(f"{{{NS}}}rPr"):
+        sz = rPr.get("sz")
+        if sz:
+            return int(sz) // 100
+    return None
+
 
 def get_table(slide):
     """Return the first table shape found on *slide*, or None."""
@@ -53,7 +64,7 @@ def cell_text(cell):
     return cell.text_frame.text.strip()
 
 
-def append_data_row(table, col_map, row_data):
+def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
     """
     Build a brand-new <a:tr> element and append it to *table*.
 
@@ -96,6 +107,7 @@ def append_data_row(table, col_map, row_data):
             rPr = etree.SubElement(r, f"{{{NS}}}rPr")
             rPr.set("lang", "en-US")
             rPr.set("dirty", "0")
+            rPr.set("sz", str(font_size * 100))
             t   = etree.SubElement(r, f"{{{NS}}}t")
             t.text = text
 
@@ -217,14 +229,21 @@ def process(excel_path, template_path, output_path, placeholder=NAME_PLACEHOLDER
 
         # Remove any pre-existing non-header rows (template placeholders) so
         # only the header row remains before we insert real data.
+        # Detect font size from the first template data row before removing it.
         tbl = table._tbl
         existing_trs = tbl.findall(f"{{{NS}}}tr")
+        font_size = DEFAULT_FONT_SIZE_PT
+        for tr in existing_trs[1:]:
+            detected = detect_font_size(tr)
+            if detected:
+                font_size = detected
+                break
         for tr in existing_trs[1:]:
             tbl.remove(tr)
 
         # Append one table row per Excel data row.
         for row_data in data_rows:
-            append_data_row(table, col_map, row_data)
+            append_data_row(table, col_map, row_data, font_size)
 
         slides_created.append(sheet_name)
 
