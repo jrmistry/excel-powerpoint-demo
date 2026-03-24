@@ -17,6 +17,7 @@ Defaults:
 """
 
 import copy
+import math
 import sys
 from pathlib import Path
 
@@ -65,18 +66,41 @@ def get_table_shape(slide):
     return None
 
 
-def get_table(slide):
-    """Return the first table shape found on *slide*, or None."""
-    shape = get_table_shape(slide)
-    return shape.table if shape else None
-
-
 def cell_text(cell):
     """Return stripped text content of a table cell."""
     return cell.text_frame.text.strip()
 
 
-def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT, row_height=None):
+def estimate_row_height(row_data, col_map, col_widths, font_size):
+    """
+    Estimate the rendered height (EMU) of a table row from its text content.
+
+    Approximates word-wrap by dividing each cell's character count by the
+    number of characters that fit on one line (derived from column width and
+    average proportional-font character width ≈ 0.5 × font em-size).  Returns
+    the height for the tallest cell plus standard top/bottom cell margins.
+
+    col_widths : {pptx_col_index: column_width_in_EMU}
+    """
+    CHAR_WIDTH_EMU  = font_size * 6350          # ≈ 0.5 em per character
+    SIDE_MARGIN_EMU = 91440                      # 0.05 in × 2  (left + right)
+    VERT_MARGIN_EMU = 91440                      # 0.05 in × 2  (top  + bottom)
+    LINE_HEIGHT_EMU = int(font_size * 1.2 * 12700)
+
+    max_lines = 1
+    for col_idx, col_name in col_map.items():
+        text = str(row_data.get(col_name) or "")
+        if not text:
+            continue
+        usable_w  = max((col_widths.get(col_idx) or 0) - SIDE_MARGIN_EMU, CHAR_WIDTH_EMU)
+        cpl       = max(1, int(usable_w / CHAR_WIDTH_EMU))
+        lines     = math.ceil(len(text) / cpl)
+        max_lines = max(max_lines, lines)
+
+    return max_lines * LINE_HEIGHT_EMU + VERT_MARGIN_EMU
+
+
+def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
     """
     Build a brand-new <a:tr> element and append it to *table*.
 
@@ -87,20 +111,15 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT, ro
     A clean minimal row avoids all of that; the table's built-in style still
     applies banded-row colours automatically based on each row's position.
 
-    col_map    : {pptx_column_index: excel_column_name}
-    row_data   : {excel_column_name: value}
-    row_height : row height in EMU as a string (detected from template if None)
+    col_map  : {pptx_column_index: excel_column_name}
+    row_data : {excel_column_name: value}
     """
     tbl       = table._tbl
     header_tr = tbl.findall(f"{{{NS}}}tr")[0]
     num_cols  = len(header_tr.findall(f"{{{NS}}}tc"))
 
-    if row_height is None:
-        # Fall back to the header's height if no template data row was available.
-        row_height = header_tr.get("h", header_tr.get("w", "370840"))
-
     new_tr = etree.Element(f"{{{NS}}}tr")
-    new_tr.set("h", row_height)   # "h" is the correct OOXML attribute for row height
+    new_tr.set("h", "0")   # 0 = auto-height; PowerPoint sizes each row to its content
 
     for col_idx in range(num_cols):
         col_name = col_map.get(col_idx)
@@ -312,62 +331,45 @@ def process(
         if skipped:
             print(f"  Skipped : {skipped}")
 
-        # Remove template placeholder rows; detect font size and row height first.
-        tbl              = table._tbl
-        existing_trs     = tbl.findall(f"{{{NS}}}tr")
-        font_size        = DEFAULT_FONT_SIZE_PT
-        data_row_height  = None
+        # Remove template placeholder rows; detect font size first.
+        tbl          = table._tbl
+        existing_trs = tbl.findall(f"{{{NS}}}tr")
+        font_size    = DEFAULT_FONT_SIZE_PT
         for tr in existing_trs[1:]:
-            if font_size == DEFAULT_FONT_SIZE_PT:
-                detected = detect_font_size(tr)
-                if detected:
-                    font_size = detected
-            if data_row_height is None:
-                h = tr.get("h", tr.get("w"))
-                try:
-                    if h and int(h) > 0:
-                        data_row_height = h
-                except (ValueError, TypeError):
-                    pass
-            if font_size != DEFAULT_FONT_SIZE_PT and data_row_height is not None:
+            detected = detect_font_size(tr)
+            if detected:
+                font_size = detected
                 break
-        # If no positive height found in data rows, fall back to the header row,
-        # then to a hardcoded default.  Templates often store h="0" on placeholder
-        # rows (auto-height), so we must validate before using the value.
-        if data_row_height is None:
-            hdr = existing_trs[0]
-            hh  = hdr.get("h", hdr.get("w", ""))
-            try:
-                if hh and int(hh) > 0:
-                    data_row_height = hh
-            except (ValueError, TypeError):
-                pass
-        if data_row_height is None:
-            data_row_height = "370840"   # 0.405 in / ~29 pt — reasonable default
+
+        # Header row height for overflow accounting (read from template).
+        hdr_el     = existing_trs[0]
+        hdr_h      = hdr_el.get("h", "")
+        fallback_h = int(font_size * 2 * 12700)
+        try:
+            header_height = int(hdr_h) if hdr_h and int(hdr_h) > 0 else fallback_h
+        except (ValueError, TypeError):
+            header_height = fallback_h
+
         for tr in existing_trs[1:]:
             tbl.remove(tr)
 
+        # Column widths (EMU) used by estimate_row_height for overflow detection.
+        col_widths = {col_idx: table.columns[col_idx].width for col_idx in col_map}
+
         current_table     = table
         current_table_top = table_shape.top if overflow_slides else 0
+        current_h         = current_table_top + header_height
+
+        slides_created.append(sheet_name)
+        rows_on_current_slide = 0
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_data in data_rows:
-            append_data_row(current_table, col_map, row_data, font_size, data_row_height)
-
             if overflow_slides:
-                tbl_el  = current_table._tbl
-                all_trs = tbl_el.findall(f"{{{NS}}}tr")
-                # Use "h" (correct OOXML attr); fall back to "w" for compatibility.
-                total_h = current_table_top + sum(
-                    int(tr.get("h", tr.get("w", "0"))) for tr in all_trs
-                )
-                # Guard: only overflow when there is already at least one data
-                # row before this one, preventing an infinite loop if a single
-                # row is taller than the available slide space.
-                if len(all_trs) >= 3 and total_h > prs.slide_height:
-                    # Undo — remove the row we just appended.
-                    tbl_el.remove(all_trs[-1])
-
+                row_h = estimate_row_height(row_data, col_map, col_widths, font_size)
+                # Guard: only overflow when there is already at least one data row,
+                # preventing an infinite loop if a single row exceeds slide height.
+                if rows_on_current_slide >= 1 and current_h + row_h > prs.slide_height:
                     if merge_columns:
                         apply_vertical_merges(current_table, col_map, merge_columns)
 
@@ -383,14 +385,18 @@ def process(
                     for tr in ovf_tbl.findall(f"{{{NS}}}tr")[1:]:
                         ovf_tbl.remove(tr)
 
-                    # Re-insert the row on the fresh slide.
-                    append_data_row(current_table, col_map, row_data, font_size, data_row_height)
+                    current_h             = current_table_top + header_height
+                    rows_on_current_slide = 0
+
+                append_data_row(current_table, col_map, row_data, font_size)
+                current_h             += row_h
+                rows_on_current_slide += 1
+            else:
+                append_data_row(current_table, col_map, row_data, font_size)
 
         # Apply merges to the final (or only) table for this sheet.
         if merge_columns:
             apply_vertical_merges(current_table, col_map, merge_columns)
-
-        slides_created.append(sheet_name)
 
     prs.save(output_path)
     print(f"\nDone — {len(slides_created)} slide(s) created: {', '.join(slides_created)}")
