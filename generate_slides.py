@@ -35,11 +35,11 @@ NAME_PLACEHOLDER = "{{name}}"
 # Default font size (pt) for inserted data rows when none can be detected from the template.
 DEFAULT_FONT_SIZE_PT = 10
 # If True, rows that would overflow the slide are placed on new continuation slides.
-OVERFLOW_SLIDES = False
+OVERFLOW_SLIDES = True
 # Sheet names to skip entirely (exact match).
-EXCLUDE_SHEETS  = []
+EXCLUDE_SHEETS  = ["Bob"]
 # Column names where consecutive equal values are merged vertically.
-MERGE_COLUMNS   = []
+MERGE_COLUMNS   = ["Goal"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -379,4 +379,9 @@ if __name__ == "__main__":
         if not Path(path).exists():
             sys.exit(f"Error: {label} file not found: '{path}'")
 
-    process(excel, template, output)
+    process(
+        excel, template, output,
+        overflow_slides=OVERFLOW_SLIDES,
+        exclude_sheets=EXCLUDE_SHEETS,
+        merge_columns=MERGE_COLUMNS,
+    )
