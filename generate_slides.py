@@ -326,7 +326,7 @@ def process(
         if overflow_slides:
             header_tr      = tbl.findall(f"{{{NS}}}tr")[0]
             row_height_emu = int(header_tr.get("w", "370840"))
-            available_emu  = prs.slide_height - table_shape.top
+            available_emu  = table_shape.height
             accum_emu      = row_height_emu   # header already occupies this much
 
         current_table = table
@@ -349,7 +349,7 @@ def process(
                 for tr in ovf_tbl.findall(f"{{{NS}}}tr")[1:]:
                     ovf_tbl.remove(tr)
 
-                available_emu = prs.slide_height - ovf_shape.top
+                available_emu = ovf_shape.height
                 accum_emu     = row_height_emu   # reset: only header in new table
 
             append_data_row(current_table, col_map, row_data, font_size)
