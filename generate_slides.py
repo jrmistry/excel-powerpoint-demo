@@ -34,6 +34,12 @@ OUTPUT_FILE   = "output.pptx"
 NAME_PLACEHOLDER = "{{name}}"
 # Default font size (pt) for inserted data rows when none can be detected from the template.
 DEFAULT_FONT_SIZE_PT = 10
+# If True, rows that would overflow the slide are placed on new continuation slides.
+OVERFLOW_SLIDES = False
+# Sheet names to skip entirely (exact match).
+EXCLUDE_SHEETS  = []
+# Column names where consecutive equal values are merged vertically.
+MERGE_COLUMNS   = []
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -51,12 +57,18 @@ def detect_font_size(tr):
     return None
 
 
-def get_table(slide):
+def get_table_shape(slide):
     """Return the first table shape found on *slide*, or None."""
     for shape in slide.shapes:
         if shape.has_table:
-            return shape.table
+            return shape
     return None
+
+
+def get_table(slide):
+    """Return the first table shape found on *slide*, or None."""
+    shape = get_table_shape(slide)
+    return shape.table if shape else None
 
 
 def cell_text(cell):
@@ -147,26 +159,96 @@ def make_slide_from_template(prs, original_sp_tree, layout):
     return new_slide
 
 
+def apply_vertical_merges(table, col_map, merge_cols):
+    """
+    Vertically merge consecutive cells with equal non-empty values in the
+    specified columns.  Call this after all data rows have been inserted.
+
+    col_map   : {pptx_col_index: excel_col_name}
+    merge_cols: list of excel column names to merge
+    """
+    name_to_idx = {name: idx for idx, name in col_map.items()}
+    tbl         = table._tbl
+    data_trs    = tbl.findall(f"{{{NS}}}tr")[1:]   # skip header row
+
+    if not data_trs:
+        return
+
+    for col_name in merge_cols:
+        col_idx = name_to_idx.get(col_name)
+        if col_idx is None:
+            continue   # column not present in this table — skip silently
+
+        # Collect (text, <a:tc>) for every data row in this column.
+        cells = []
+        for tr in data_trs:
+            tcs   = tr.findall(f"{{{NS}}}tc")
+            if col_idx < len(tcs):
+                tc    = tcs[col_idx]
+                t_el  = tc.find(f".//{{{NS}}}t")
+                value = (t_el.text or "").strip() if t_el is not None else ""
+                cells.append((value, tc))
+
+        # Merge consecutive groups of equal non-empty values.
+        i = 0
+        while i < len(cells):
+            value, first_tc = cells[i]
+            j = i + 1
+            while j < len(cells) and cells[j][0] == value:
+                j += 1
+            span = j - i
+
+            if span > 1 and value:
+                first_tc.set("rowSpan", str(span))
+                for k in range(i + 1, j):
+                    _, cont_tc = cells[k]
+                    cont_tc.set("vMerge", "1")
+                    # Replace body content with an empty paragraph (no text).
+                    txBody = cont_tc.find(f"{{{NS}}}txBody")
+                    if txBody is not None:
+                        for p in txBody.findall(f"{{{NS}}}p"):
+                            txBody.remove(p)
+                        etree.SubElement(txBody, f"{{{NS}}}p")
+
+            i = j
+
+
 # ── main logic ────────────────────────────────────────────────────────────────
 
-def process(excel_path, template_path, output_path, placeholder=NAME_PLACEHOLDER):
-    wb = openpyxl.load_workbook(excel_path)
+def process(
+    excel_path,
+    template_path,
+    output_path,
+    placeholder=NAME_PLACEHOLDER,
+    overflow_slides=OVERFLOW_SLIDES,
+    exclude_sheets=None,
+    merge_columns=None,
+):
+    exclude_sheets = set(exclude_sheets or [])
+    merge_columns  = list(merge_columns  or [])
+
+    wb  = openpyxl.load_workbook(excel_path)
     prs = Presentation(template_path)
 
     if not prs.slides:
         sys.exit("Error: template contains no slides.")
 
     # Snapshot the original template slide *before* we mutate anything.
-    tmpl_slide = prs.slides[0]
+    tmpl_slide       = prs.slides[0]
     original_sp_tree = copy.deepcopy(tmpl_slide.shapes._spTree)
-    tmpl_layout = tmpl_slide.slide_layout
+    tmpl_layout      = tmpl_slide.slide_layout
 
     sheets = wb.sheetnames
     print(f"Sheets found: {', '.join(sheets)}\n")
 
-    slides_created = []
+    slides_created   = []
+    first_slide_used = False
 
-    for idx, sheet_name in enumerate(sheets):
+    for sheet_name in sheets:
+        if sheet_name in exclude_sheets:
+            print(f"[SKIP] '{sheet_name}': in exclude list.")
+            continue
+
         ws = wb[sheet_name]
 
         # Read column headers from row 1 (stop at first blank cell).
@@ -193,20 +275,21 @@ def process(excel_path, template_path, output_path, placeholder=NAME_PLACEHOLDER
         print(f"Sheet '{sheet_name}': {len(data_rows)} data row(s), "
               f"columns: {headers}")
 
-        # Get or create the slide for this sheet.
-        if idx == 0:
-            slide = prs.slides[0]   # reuse the template slide directly
+        # Get or create the first slide for this sheet.
+        if not first_slide_used:
+            slide            = prs.slides[0]
+            first_slide_used = True
         else:
             slide = make_slide_from_template(prs, original_sp_tree, tmpl_layout)
 
-        # Inject the tab name.
         replace_placeholder(slide, placeholder, sheet_name)
 
-        # Locate the table.
-        table = get_table(slide)
-        if table is None:
+        # Locate the table shape (shape needed for .top in overflow calc).
+        table_shape = get_table_shape(slide)
+        if table_shape is None:
             print(f"  [WARN] No table found on slide — skipping '{sheet_name}'.")
             continue
+        table = table_shape.table
 
         # Map: PowerPoint column index → Excel column name (exact-match only).
         pptx_cols = [
@@ -227,12 +310,10 @@ def process(excel_path, template_path, output_path, placeholder=NAME_PLACEHOLDER
         if skipped:
             print(f"  Skipped : {skipped}")
 
-        # Remove any pre-existing non-header rows (template placeholders) so
-        # only the header row remains before we insert real data.
-        # Detect font size from the first template data row before removing it.
-        tbl = table._tbl
+        # Remove template placeholder rows; detect font size from them first.
+        tbl          = table._tbl
         existing_trs = tbl.findall(f"{{{NS}}}tr")
-        font_size = DEFAULT_FONT_SIZE_PT
+        font_size    = DEFAULT_FONT_SIZE_PT
         for tr in existing_trs[1:]:
             detected = detect_font_size(tr)
             if detected:
@@ -241,9 +322,43 @@ def process(excel_path, template_path, output_path, placeholder=NAME_PLACEHOLDER
         for tr in existing_trs[1:]:
             tbl.remove(tr)
 
-        # Append one table row per Excel data row.
+        # Compute overflow budget (EMU) for the current slide.
+        if overflow_slides:
+            header_tr      = tbl.findall(f"{{{NS}}}tr")[0]
+            row_height_emu = int(header_tr.get("w", "370840"))
+            available_emu  = prs.slide_height - table_shape.top
+            accum_emu      = row_height_emu   # header already occupies this much
+
+        current_table = table
+
+        # Insert data rows, creating overflow slides when the table is full.
         for row_data in data_rows:
-            append_data_row(table, col_map, row_data, font_size)
+            if overflow_slides and accum_emu + row_height_emu > available_emu:
+                # Apply merges to the slide we're leaving before starting a new one.
+                if merge_columns:
+                    apply_vertical_merges(current_table, col_map, merge_columns)
+
+                cont_label = f"{sheet_name} (cont.)"
+                ovf_slide  = make_slide_from_template(prs, original_sp_tree, tmpl_layout)
+                replace_placeholder(ovf_slide, placeholder, cont_label)
+                slides_created.append(cont_label)
+
+                ovf_shape     = get_table_shape(ovf_slide)
+                current_table = ovf_shape.table
+                ovf_tbl       = current_table._tbl
+                for tr in ovf_tbl.findall(f"{{{NS}}}tr")[1:]:
+                    ovf_tbl.remove(tr)
+
+                available_emu = prs.slide_height - ovf_shape.top
+                accum_emu     = row_height_emu   # reset: only header in new table
+
+            append_data_row(current_table, col_map, row_data, font_size)
+            if overflow_slides:
+                accum_emu += row_height_emu
+
+        # Apply merges to the final (or only) table for this sheet.
+        if merge_columns:
+            apply_vertical_merges(current_table, col_map, merge_columns)
 
         slides_created.append(sheet_name)
 
