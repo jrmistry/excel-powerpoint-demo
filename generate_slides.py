@@ -41,6 +41,9 @@ OVERFLOW_SLIDES = True
 EXCLUDE_SHEETS  = ["Bob"]
 # Column names where consecutive equal values are merged vertically.
 MERGE_COLUMNS   = ["Goal"]
+# Column names to sort rows by before inserting (ascending, left-to-right priority).
+# Rows with None in a sort column are placed last. Excel file is never modified.
+SORT_COLUMNS    = []
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -244,9 +247,11 @@ def process(
     overflow_slides=OVERFLOW_SLIDES,
     exclude_sheets=None,
     merge_columns=None,
+    sort_columns=None,
 ):
     exclude_sheets = set(exclude_sheets or [])
     merge_columns  = list(merge_columns  or [])
+    sort_columns   = list(sort_columns   or [])
 
     wb  = openpyxl.load_workbook(excel_path)
     prs = Presentation(template_path)
@@ -292,6 +297,14 @@ def process(
                 headers[c]: row[c]
                 for c in range(min(len(headers), len(row)))
             })
+
+        # Sort rows in-memory (Excel file is never modified).
+        sort_cols = [c for c in sort_columns if c in headers]
+        if sort_cols:
+            data_rows.sort(key=lambda row: tuple(
+                (0 if row.get(c) is not None else 1, str(row.get(c) or "").lower())
+                for c in sort_cols
+            ))
 
         print(f"Sheet '{sheet_name}': {len(data_rows)} data row(s), "
               f"columns: {headers}")
@@ -420,4 +433,5 @@ if __name__ == "__main__":
         overflow_slides=OVERFLOW_SLIDES,
         exclude_sheets=EXCLUDE_SHEETS,
         merge_columns=MERGE_COLUMNS,
+        sort_columns=SORT_COLUMNS,
     )
