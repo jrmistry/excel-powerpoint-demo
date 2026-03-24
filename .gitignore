@@ -1,0 +1,10 @@
+# Output and sample data files
+*.xlsx
+*.pptx
+*.ppt
+
+# Office temp lock files
+~$*
+
+# macOS
+.DS_Store
