@@ -322,39 +322,43 @@ def process(
         for tr in existing_trs[1:]:
             tbl.remove(tr)
 
-        # Compute overflow budget (EMU) for the current slide.
-        if overflow_slides:
-            header_tr      = tbl.findall(f"{{{NS}}}tr")[0]
-            row_height_emu = int(header_tr.get("w", "370840"))
-            available_emu  = table_shape.height
-            accum_emu      = row_height_emu   # header already occupies this much
+        current_table     = table
+        current_table_top = table_shape.top if overflow_slides else 0
 
-        current_table = table
-
-        # Insert data rows, creating overflow slides when the table is full.
+        # Insert data rows, spilling onto continuation slides when needed.
         for row_data in data_rows:
-            if overflow_slides and accum_emu + row_height_emu > available_emu:
-                # Apply merges to the slide we're leaving before starting a new one.
-                if merge_columns:
-                    apply_vertical_merges(current_table, col_map, merge_columns)
-
-                cont_label = f"{sheet_name} (cont.)"
-                ovf_slide  = make_slide_from_template(prs, original_sp_tree, tmpl_layout)
-                replace_placeholder(ovf_slide, placeholder, cont_label)
-                slides_created.append(cont_label)
-
-                ovf_shape     = get_table_shape(ovf_slide)
-                current_table = ovf_shape.table
-                ovf_tbl       = current_table._tbl
-                for tr in ovf_tbl.findall(f"{{{NS}}}tr")[1:]:
-                    ovf_tbl.remove(tr)
-
-                available_emu = ovf_shape.height
-                accum_emu     = row_height_emu   # reset: only header in new table
-
             append_data_row(current_table, col_map, row_data, font_size)
+
             if overflow_slides:
-                accum_emu += row_height_emu
+                tbl_el  = current_table._tbl
+                all_trs = tbl_el.findall(f"{{{NS}}}tr")
+                total_h = current_table_top + sum(
+                    int(tr.get("w", "0")) for tr in all_trs
+                )
+                # Guard: only overflow when there is already at least one data
+                # row before this one, preventing an infinite loop if a single
+                # row is taller than the available slide space.
+                if len(all_trs) >= 3 and total_h > prs.slide_height:
+                    # Undo — remove the row we just appended.
+                    tbl_el.remove(all_trs[-1])
+
+                    if merge_columns:
+                        apply_vertical_merges(current_table, col_map, merge_columns)
+
+                    cont_label    = f"{sheet_name} (cont.)"
+                    ovf_slide     = make_slide_from_template(prs, original_sp_tree, tmpl_layout)
+                    replace_placeholder(ovf_slide, placeholder, cont_label)
+                    slides_created.append(cont_label)
+
+                    ovf_shape         = get_table_shape(ovf_slide)
+                    current_table     = ovf_shape.table
+                    current_table_top = ovf_shape.top
+                    ovf_tbl           = current_table._tbl
+                    for tr in ovf_tbl.findall(f"{{{NS}}}tr")[1:]:
+                        ovf_tbl.remove(tr)
+
+                    # Re-insert the row on the fresh slide.
+                    append_data_row(current_table, col_map, row_data, font_size)
 
         # Apply merges to the final (or only) table for this sheet.
         if merge_columns:
