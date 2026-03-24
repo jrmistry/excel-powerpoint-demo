@@ -301,6 +301,14 @@ def process(
                 for c in range(min(len(headers), len(row)))
             })
 
+        # Strip leading/trailing whitespace from all string values upfront,
+        # so that sort keys and overflow height estimates use clean text.
+        if strip_whitespace:
+            data_rows = [
+                {k: v.strip() if isinstance(v, str) else v for k, v in row.items()}
+                for row in data_rows
+            ]
+
         # Sort rows in-memory (Excel file is never modified).
         sort_cols = [c for c in sort_columns if c in headers]
         if sort_cols:
@@ -381,8 +389,6 @@ def process(
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_data in data_rows:
-            if strip_whitespace:
-                row_data = {k: v.strip() if isinstance(v, str) else v for k, v in row_data.items()}
             if overflow_slides:
                 row_h = estimate_row_height(row_data, col_map, col_widths, font_size)
                 # Guard: only overflow when there is already at least one data row,
