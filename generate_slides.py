@@ -324,10 +324,26 @@ def process(
                     font_size = detected
             if data_row_height is None:
                 h = tr.get("h", tr.get("w"))
-                if h:
-                    data_row_height = h
+                try:
+                    if h and int(h) > 0:
+                        data_row_height = h
+                except (ValueError, TypeError):
+                    pass
             if font_size != DEFAULT_FONT_SIZE_PT and data_row_height is not None:
                 break
+        # If no positive height found in data rows, fall back to the header row,
+        # then to a hardcoded default.  Templates often store h="0" on placeholder
+        # rows (auto-height), so we must validate before using the value.
+        if data_row_height is None:
+            hdr = existing_trs[0]
+            hh  = hdr.get("h", hdr.get("w", ""))
+            try:
+                if hh and int(hh) > 0:
+                    data_row_height = hh
+            except (ValueError, TypeError):
+                pass
+        if data_row_height is None:
+            data_row_height = "370840"   # 0.405 in / ~29 pt — reasonable default
         for tr in existing_trs[1:]:
             tbl.remove(tr)
 
