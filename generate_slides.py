@@ -43,7 +43,9 @@ EXCLUDE_SHEETS  = ["Bob"]
 MERGE_COLUMNS   = ["Goal"]
 # Column names to sort rows by before inserting (ascending, left-to-right priority).
 # Rows with None in a sort column are placed last. Excel file is never modified.
-SORT_COLUMNS    = []
+SORT_COLUMNS    = ["Goal"]
+# If True, strip leading/trailing whitespace from cell values before inserting.
+STRIP_WHITESPACE = True
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -248,6 +250,7 @@ def process(
     exclude_sheets=None,
     merge_columns=None,
     sort_columns=None,
+    strip_whitespace=STRIP_WHITESPACE,
 ):
     exclude_sheets = set(exclude_sheets or [])
     merge_columns  = list(merge_columns  or [])
@@ -378,6 +381,8 @@ def process(
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_data in data_rows:
+            if strip_whitespace:
+                row_data = {k: v.strip() if isinstance(v, str) else v for k, v in row_data.items()}
             if overflow_slides:
                 row_h = estimate_row_height(row_data, col_map, col_widths, font_size)
                 # Guard: only overflow when there is already at least one data row,
@@ -434,4 +439,5 @@ if __name__ == "__main__":
         exclude_sheets=EXCLUDE_SHEETS,
         merge_columns=MERGE_COLUMNS,
         sort_columns=SORT_COLUMNS,
+        strip_whitespace=STRIP_WHITESPACE,
     )
