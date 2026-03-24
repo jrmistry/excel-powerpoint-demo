@@ -76,7 +76,7 @@ def cell_text(cell):
     return cell.text_frame.text.strip()
 
 
-def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
+def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT, row_height=None):
     """
     Build a brand-new <a:tr> element and append it to *table*.
 
@@ -87,18 +87,20 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
     A clean minimal row avoids all of that; the table's built-in style still
     applies banded-row colours automatically based on each row's position.
 
-    col_map  : {pptx_column_index: excel_column_name}
-    row_data : {excel_column_name: value}
+    col_map    : {pptx_column_index: excel_column_name}
+    row_data   : {excel_column_name: value}
+    row_height : row height in EMU as a string (detected from template if None)
     """
-    tbl = table._tbl
+    tbl       = table._tbl
     header_tr = tbl.findall(f"{{{NS}}}tr")[0]
+    num_cols  = len(header_tr.findall(f"{{{NS}}}tc"))
 
-    # Borrow row height from the header so sizing stays consistent.
-    row_height = header_tr.get("w", "370840")
-    num_cols   = len(header_tr.findall(f"{{{NS}}}tc"))
+    if row_height is None:
+        # Fall back to the header's height if no template data row was available.
+        row_height = header_tr.get("h", header_tr.get("w", "370840"))
 
     new_tr = etree.Element(f"{{{NS}}}tr")
-    new_tr.set("w", row_height)
+    new_tr.set("h", row_height)   # "h" is the correct OOXML attribute for row height
 
     for col_idx in range(num_cols):
         col_name = col_map.get(col_idx)
@@ -310,14 +312,21 @@ def process(
         if skipped:
             print(f"  Skipped : {skipped}")
 
-        # Remove template placeholder rows; detect font size from them first.
-        tbl          = table._tbl
-        existing_trs = tbl.findall(f"{{{NS}}}tr")
-        font_size    = DEFAULT_FONT_SIZE_PT
+        # Remove template placeholder rows; detect font size and row height first.
+        tbl              = table._tbl
+        existing_trs     = tbl.findall(f"{{{NS}}}tr")
+        font_size        = DEFAULT_FONT_SIZE_PT
+        data_row_height  = None
         for tr in existing_trs[1:]:
-            detected = detect_font_size(tr)
-            if detected:
-                font_size = detected
+            if font_size == DEFAULT_FONT_SIZE_PT:
+                detected = detect_font_size(tr)
+                if detected:
+                    font_size = detected
+            if data_row_height is None:
+                h = tr.get("h", tr.get("w"))
+                if h:
+                    data_row_height = h
+            if font_size != DEFAULT_FONT_SIZE_PT and data_row_height is not None:
                 break
         for tr in existing_trs[1:]:
             tbl.remove(tr)
@@ -327,13 +336,14 @@ def process(
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_data in data_rows:
-            append_data_row(current_table, col_map, row_data, font_size)
+            append_data_row(current_table, col_map, row_data, font_size, data_row_height)
 
             if overflow_slides:
                 tbl_el  = current_table._tbl
                 all_trs = tbl_el.findall(f"{{{NS}}}tr")
+                # Use "h" (correct OOXML attr); fall back to "w" for compatibility.
                 total_h = current_table_top + sum(
-                    int(tr.get("w", "0")) for tr in all_trs
+                    int(tr.get("h", tr.get("w", "0"))) for tr in all_trs
                 )
                 # Guard: only overflow when there is already at least one data
                 # row before this one, preventing an infinite loop if a single
@@ -358,7 +368,7 @@ def process(
                         ovf_tbl.remove(tr)
 
                     # Re-insert the row on the fresh slide.
-                    append_data_row(current_table, col_map, row_data, font_size)
+                    append_data_row(current_table, col_map, row_data, font_size, data_row_height)
 
         # Apply merges to the final (or only) table for this sheet.
         if merge_columns:
