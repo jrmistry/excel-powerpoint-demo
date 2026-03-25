@@ -46,10 +46,16 @@ MERGE_COLUMNS   = ["Goal"]
 SORT_COLUMNS    = ["Goal"]
 # If True, strip leading/trailing whitespace from cell values before inserting.
 STRIP_WHITESPACE = True
+# Number of single-line-heights to reserve as blank space at the bottom of each
+# slide before triggering overflow.  0 = table may extend to the very bottom edge.
+BOTTOM_PADDING_ROWS = 2
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+# Cell margin used by the template table (0.13 cm "narrow" preset, per side).
+CELL_MARGIN_EMU = 46800   # 0.13 cm = 46 800 EMU
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -88,8 +94,8 @@ def estimate_row_height(row_data, col_map, col_widths, font_size):
     col_widths : {pptx_col_index: column_width_in_EMU}
     """
     CHAR_WIDTH_EMU  = font_size * 6350          # ≈ 0.5 em per character
-    SIDE_MARGIN_EMU = 91440                      # 0.05 in × 2  (left + right)
-    VERT_MARGIN_EMU = 91440                      # 0.05 in × 2  (top  + bottom)
+    SIDE_MARGIN_EMU = CELL_MARGIN_EMU * 2       # left + right
+    VERT_MARGIN_EMU = CELL_MARGIN_EMU * 2       # top  + bottom
     LINE_HEIGHT_EMU = int(font_size * 1.2 * 12700)
 
     max_lines = 1
@@ -149,7 +155,9 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
             t   = etree.SubElement(r, f"{{{NS}}}t")
             t.text = text
 
-        etree.SubElement(tc, f"{{{NS}}}tcPr")
+        tc_pr = etree.SubElement(tc, f"{{{NS}}}tcPr")
+        for attr in ("marL", "marR", "marT", "marB"):
+            tc_pr.set(attr, str(CELL_MARGIN_EMU))
 
     tbl.append(new_tr)
 
@@ -251,6 +259,7 @@ def process(
     merge_columns=None,
     sort_columns=None,
     strip_whitespace=STRIP_WHITESPACE,
+    bottom_padding_rows=BOTTOM_PADDING_ROWS,
 ):
     exclude_sheets = set(exclude_sheets or [])
     merge_columns  = list(merge_columns  or [])
@@ -380,6 +389,11 @@ def process(
         # Column widths (EMU) used by estimate_row_height for overflow detection.
         col_widths = {col_idx: table.columns[col_idx].width for col_idx in col_map}
 
+        # Bottom padding: reserve N single-line-heights above the slide edge.
+        line_height_emu   = int(font_size * 1.2 * 12700)
+        bottom_pad_emu    = bottom_padding_rows * line_height_emu
+        slide_fill_height = prs.slide_height - bottom_pad_emu
+
         # Pre-compute which (row_index, col_name) pairs will be rendered as
         # merged/spanned cells.  In a rowSpan group, PowerPoint sets each
         # individual row's height from its non-spanning cells; the spanning
@@ -419,7 +433,7 @@ def process(
                 row_h = estimate_row_height(effective, col_map, col_widths, font_size)
                 # Guard: only overflow when there is already at least one data row,
                 # preventing an infinite loop if a single row exceeds slide height.
-                if rows_on_current_slide >= 1 and current_h + row_h > prs.slide_height:
+                if rows_on_current_slide >= 1 and current_h + row_h > slide_fill_height:
                     if merge_columns:
                         apply_vertical_merges(current_table, col_map, merge_columns)
 
@@ -472,4 +486,5 @@ if __name__ == "__main__":
         merge_columns=MERGE_COLUMNS,
         sort_columns=SORT_COLUMNS,
         strip_whitespace=STRIP_WHITESPACE,
+        bottom_padding_rows=BOTTOM_PADDING_ROWS,
     )
