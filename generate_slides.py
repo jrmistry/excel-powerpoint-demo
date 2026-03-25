@@ -40,10 +40,10 @@ OVERFLOW_SLIDES = True
 # Sheet names to skip entirely (exact match).
 EXCLUDE_SHEETS  = ["Bob"]
 # Column names where consecutive equal values are merged vertically.
-MERGE_COLUMNS   = ["Goal"]
+MERGE_COLUMNS   = ["Goal", "Goal2", "Metric"]
 # Column names to sort rows by before inserting (ascending, left-to-right priority).
 # Rows with None in a sort column are placed last. Excel file is never modified.
-SORT_COLUMNS    = ["Goal"]
+SORT_COLUMNS    = ["Goal", "Goal2", "Metric"]
 # If True, strip leading/trailing whitespace from cell values before inserting.
 STRIP_WHITESPACE = True
 # Number of single-line-heights to reserve as blank space at the bottom of each
@@ -54,8 +54,14 @@ BOTTOM_PADDING_ROWS = 2
 
 NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
-# Cell margin used by the template table (0.13 cm "narrow" preset, per side).
-CELL_MARGIN_EMU = 46800   # 0.13 cm = 46 800 EMU
+# Cell margin matching the template's tcPr (marL=marR=45720, marT=marB default=45720).
+CELL_MARGIN_EMU = 45720   # 0.05 in = 45 720 EMU per side
+
+# Line-height multiplier used in row-height estimation.
+# Calibrated so that a single-line 11 pt row ≈ 303 000 EMU, matching
+# the actual PowerPoint auto-height (cell margins + Calibri line metrics
+# + PowerPoint's internal spacing).
+LINE_HEIGHT_MULTIPLIER = 1.5
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -96,7 +102,7 @@ def estimate_row_height(row_data, col_map, col_widths, font_size):
     CHAR_WIDTH_EMU  = font_size * 6350          # ≈ 0.5 em per character
     SIDE_MARGIN_EMU = CELL_MARGIN_EMU * 2       # left + right
     VERT_MARGIN_EMU = CELL_MARGIN_EMU * 2       # top  + bottom
-    LINE_HEIGHT_EMU = int(font_size * 1.2 * 12700)
+    LINE_HEIGHT_EMU = int(font_size * LINE_HEIGHT_MULTIPLIER * 12700)
 
     max_lines = 1
     for col_idx, col_name in col_map.items():
@@ -278,6 +284,69 @@ def apply_vertical_merges(table, col_map, merge_cols):
 
 # ── main logic ────────────────────────────────────────────────────────────────
 
+def export_slide_pngs(layouts, slide_w, slide_h, output_path):
+    """
+    Write one PNG per slide showing the estimated row layout.
+
+    Each PNG draws the table as coloured row-bands with a red dashed line
+    at the overflow boundary (fill_height) so overflow can be spotted at a
+    glance without opening PowerPoint.
+
+    layouts : list of dicts —
+        name, table_left, table_top, table_width,
+        header_height, fill_height, rows (list of estimated row heights in EMU)
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        print("  [warn] Pillow not available; skipping PNG export.")
+        return
+
+    stem   = str(output_path).rsplit(".", 1)[0]
+    SCALE  = 1920 / slide_w          # normalise to 1920 px wide
+    W, H   = 1920, int(slide_h * SCALE)
+
+    for idx, layout in enumerate(layouts):
+        img  = Image.new("RGB", (W, H), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        tx = int(layout["table_left"]  * SCALE)
+        tw = int(layout["table_width"] * SCALE)
+        ty = int(layout["table_top"]   * SCALE)
+
+        # Header band
+        hy = ty + int(layout["header_height"] * SCALE)
+        draw.rectangle([(tx, ty), (tx + tw - 1, hy - 1)], fill=(30, 90, 140))
+
+        # Data row bands (alternating tints)
+        y = hy
+        for j, rh in enumerate(layout["rows"]):
+            rh_px = max(1, int(rh * SCALE))
+            fill  = (200, 220, 235) if j % 2 == 0 else (230, 230, 230)
+            draw.rectangle([(tx, y), (tx + tw - 1, y + rh_px - 1)], fill=fill,
+                           outline=(180, 180, 180), width=1)
+            y += rh_px
+
+        # Fill-height boundary (red dashed)
+        fy = int(layout["fill_height"] * SCALE)
+        for x in range(0, W, 24):
+            draw.line([(x, fy), (min(x + 12, W), fy)], fill=(220, 30, 30), width=2)
+
+        # Slide bottom boundary (thin black line)
+        draw.line([(0, H - 1), (W - 1, H - 1)], fill=(0, 0, 0), width=3)
+
+        # Flag overflow: any row that extends below fill_height
+        if y > fy:
+            overflow_y = max(fy, ty)
+            draw.rectangle([(tx, overflow_y), (tx + tw - 1, min(y, H) - 1)],
+                           fill=(255, 100, 100, 180))
+            draw.text((tx + 4, overflow_y + 4), "OVERFLOW", fill=(180, 0, 0))
+
+        png_path = f"{stem}_slide{idx + 1:02d}.png"
+        img.save(png_path)
+        print(f"  PNG saved: {png_path}")
+
+
 def process(
     excel_path,
     template_path,
@@ -309,6 +378,7 @@ def process(
     print(f"Sheets found: {', '.join(sheets)}\n")
 
     slides_created   = []
+    slide_layouts    = []   # collected for PNG export
     first_slide_used = False
 
     for sheet_name in sheets:
@@ -419,7 +489,7 @@ def process(
         col_widths = {col_idx: table.columns[col_idx].width for col_idx in col_map}
 
         # Bottom padding: reserve N single-line-heights above the slide edge.
-        line_height_emu   = int(font_size * 1.2 * 12700)
+        line_height_emu   = int(font_size * LINE_HEIGHT_MULTIPLIER * 12700)
         bottom_pad_emu    = bottom_padding_rows * line_height_emu
         slide_fill_height = prs.slide_height - bottom_pad_emu
 
@@ -450,6 +520,13 @@ def process(
 
         slides_created.append(sheet_name)
         rows_on_current_slide = 0
+        current_layout = {
+            "name": sheet_name, "rows": [],
+            "table_left": table_shape.left, "table_top": current_table_top,
+            "table_width": table_shape.width, "header_height": header_height,
+            "fill_height": slide_fill_height if overflow_slides else prs.slide_height,
+        }
+        slide_layouts.append(current_layout)
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_idx, row_data in enumerate(data_rows):
@@ -480,10 +557,18 @@ def process(
 
                     current_h             = current_table_top + header_height
                     rows_on_current_slide = 0
+                    current_layout = {
+                        "name": cont_label, "rows": [],
+                        "table_left": ovf_shape.left, "table_top": current_table_top,
+                        "table_width": ovf_shape.width, "header_height": header_height,
+                        "fill_height": slide_fill_height,
+                    }
+                    slide_layouts.append(current_layout)
 
                 append_data_row(current_table, col_map, row_data, font_size)
                 current_h             += row_h
                 rows_on_current_slide += 1
+                current_layout["rows"].append(row_h)
             else:
                 append_data_row(current_table, col_map, row_data, font_size)
 
@@ -494,6 +579,8 @@ def process(
     prs.save(output_path)
     print(f"\nDone — {len(slides_created)} slide(s) created: {', '.join(slides_created)}")
     print(f"Output saved to: {output_path}")
+    print("\nExporting slide PNGs...")
+    export_slide_pngs(slide_layouts, prs.slide_width, prs.slide_height, output_path)
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
