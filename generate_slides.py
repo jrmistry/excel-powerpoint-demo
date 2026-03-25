@@ -195,8 +195,12 @@ def make_slide_from_template(prs, original_sp_tree, layout):
 
 def apply_vertical_merges(table, col_map, merge_cols):
     """
-    Vertically merge consecutive cells with equal non-empty values in the
-    specified columns.  Call this after all data rows have been inserted.
+    Vertically merge consecutive cells in the specified columns.
+
+    Non-empty cells: merge runs of equal values as usual.
+    Empty cells: merge sub-groups that align with the immediately adjacent
+    right column's value groupings, so blank cells visually track the data
+    grouping to their right rather than staying as isolated single cells.
 
     col_map   : {pptx_col_index: excel_col_name}
     merge_cols: list of excel column names to merge
@@ -208,41 +212,66 @@ def apply_vertical_merges(table, col_map, merge_cols):
     if not data_trs:
         return
 
+    num_tcs = len(data_trs[0].findall(f"{{{NS}}}tc"))
+
+    def _do_merge(cells, start, end):
+        """Apply rowSpan on cells[start] and vMerge on cells[start+1:end]."""
+        if end - start < 2:
+            return
+        cells[start][1].set("rowSpan", str(end - start))
+        for k in range(start + 1, end):
+            cont_tc = cells[k][1]
+            cont_tc.set("vMerge", "1")
+            txBody = cont_tc.find(f"{{{NS}}}txBody")
+            if txBody is not None:
+                for p in txBody.findall(f"{{{NS}}}p"):
+                    txBody.remove(p)
+                etree.SubElement(txBody, f"{{{NS}}}p")
+
     for col_name in merge_cols:
         col_idx = name_to_idx.get(col_name)
         if col_idx is None:
             continue   # column not present in this table — skip silently
 
-        # Collect (text, <a:tc>) for every data row in this column.
+        # Collect [text, <a:tc>] for every data row in this column.
         cells = []
         for tr in data_trs:
             tcs   = tr.findall(f"{{{NS}}}tc")
-            if col_idx < len(tcs):
-                tc    = tcs[col_idx]
-                t_el  = tc.find(f".//{{{NS}}}t")
-                value = (t_el.text or "").strip() if t_el is not None else ""
-                cells.append((value, tc))
+            tc    = tcs[col_idx] if col_idx < len(tcs) else None
+            t_el  = tc.find(f".//{{{NS}}}t") if tc is not None else None
+            value = (t_el.text or "").strip() if t_el is not None else ""
+            cells.append([value, tc])
 
-        # Merge consecutive groups of equal non-empty values.
+        # Collect right-column values for smart empty-cell grouping.
+        right_col = col_idx + 1
+        right_vals = []
+        if right_col < num_tcs:
+            for tr in data_trs:
+                tcs   = tr.findall(f"{{{NS}}}tc")
+                t_el  = tcs[right_col].find(f".//{{{NS}}}t") if right_col < len(tcs) else None
+                right_vals.append((t_el.text or "").strip() if t_el is not None else "")
+
         i = 0
         while i < len(cells):
-            value, first_tc = cells[i]
+            value = cells[i][0]
             j = i + 1
             while j < len(cells) and cells[j][0] == value:
                 j += 1
-            span = j - i
 
-            if span > 1 and value:
-                first_tc.set("rowSpan", str(span))
-                for k in range(i + 1, j):
-                    _, cont_tc = cells[k]
-                    cont_tc.set("vMerge", "1")
-                    # Replace body content with an empty paragraph (no text).
-                    txBody = cont_tc.find(f"{{{NS}}}txBody")
-                    if txBody is not None:
-                        for p in txBody.findall(f"{{{NS}}}p"):
-                            txBody.remove(p)
-                        etree.SubElement(txBody, f"{{{NS}}}p")
+            if value:
+                # Non-empty run: merge the whole group if span > 1.
+                _do_merge(cells, i, j)
+            elif right_vals and (j - i) > 1:
+                # Empty run: sub-divide by the right column's value groups
+                # and merge each sub-group independently.
+                k = i
+                while k < j:
+                    rv = right_vals[k]
+                    m  = k + 1
+                    while m < j and right_vals[m] == rv:
+                        m += 1
+                    _do_merge(cells, k, m)
+                    k = m
 
             i = j
 
