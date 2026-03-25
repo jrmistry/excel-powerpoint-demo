@@ -82,12 +82,12 @@ def estimate_row_height(row_data, col_map, col_widths, font_size):
 
     Approximates word-wrap by dividing each cell's character count by the
     number of characters that fit on one line (derived from column width and
-    average proportional-font character width ≈ 0.5 × font em-size).  Returns
+    average proportional-font character width ≈ 0.42 × font em-size).  Returns
     the height for the tallest cell plus standard top/bottom cell margins.
 
     col_widths : {pptx_col_index: column_width_in_EMU}
     """
-    CHAR_WIDTH_EMU  = font_size * 6350          # ≈ 0.5 em per character
+    CHAR_WIDTH_EMU  = font_size * 5334          # ≈ 0.42 em per character (empirical avg for proportional fonts)
     SIDE_MARGIN_EMU = 91440                      # 0.05 in × 2  (left + right)
     VERT_MARGIN_EMU = 91440                      # 0.05 in × 2  (top  + bottom)
     LINE_HEIGHT_EMU = int(font_size * 1.2 * 12700)
