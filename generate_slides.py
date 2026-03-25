@@ -82,12 +82,12 @@ def estimate_row_height(row_data, col_map, col_widths, font_size):
 
     Approximates word-wrap by dividing each cell's character count by the
     number of characters that fit on one line (derived from column width and
-    average proportional-font character width ≈ 0.42 × font em-size).  Returns
+    average proportional-font character width ≈ 0.5 × font em-size).  Returns
     the height for the tallest cell plus standard top/bottom cell margins.
 
     col_widths : {pptx_col_index: column_width_in_EMU}
     """
-    CHAR_WIDTH_EMU  = font_size * 5334          # ≈ 0.42 em per character (empirical avg for proportional fonts)
+    CHAR_WIDTH_EMU  = font_size * 6350          # ≈ 0.5 em per character
     SIDE_MARGIN_EMU = 91440                      # 0.05 in × 2  (left + right)
     VERT_MARGIN_EMU = 91440                      # 0.05 in × 2  (top  + bottom)
     LINE_HEIGHT_EMU = int(font_size * 1.2 * 12700)
@@ -380,6 +380,27 @@ def process(
         # Column widths (EMU) used by estimate_row_height for overflow detection.
         col_widths = {col_idx: table.columns[col_idx].width for col_idx in col_map}
 
+        # Pre-compute which (row_index, col_name) pairs will be rendered as
+        # merged/spanned cells.  In a rowSpan group, PowerPoint sets each
+        # individual row's height from its non-spanning cells; the spanning
+        # cell's text flows across the combined height of the group.  So we
+        # exclude those cells from per-row height estimation.
+        merge_spanned: set = set()
+        if overflow_slides and merge_columns:
+            for col_name in merge_columns:
+                if col_name not in headers:
+                    continue
+                i = 0
+                while i < len(data_rows):
+                    val = data_rows[i].get(col_name)
+                    j   = i + 1
+                    while j < len(data_rows) and data_rows[j].get(col_name) == val:
+                        j += 1
+                    if (j - i) > 1 and val:
+                        for k in range(i, j):
+                            merge_spanned.add((k, col_name))
+                    i = j
+
         current_table     = table
         current_table_top = table_shape.top if overflow_slides else 0
         current_h         = current_table_top + header_height
@@ -388,9 +409,14 @@ def process(
         rows_on_current_slide = 0
 
         # Insert data rows, spilling onto continuation slides when needed.
-        for row_data in data_rows:
+        for row_idx, row_data in enumerate(data_rows):
             if overflow_slides:
-                row_h = estimate_row_height(row_data, col_map, col_widths, font_size)
+                if merge_spanned:
+                    effective = {k: (None if (row_idx, k) in merge_spanned else v)
+                                 for k, v in row_data.items()}
+                else:
+                    effective = row_data
+                row_h = estimate_row_height(effective, col_map, col_widths, font_size)
                 # Guard: only overflow when there is already at least one data row,
                 # preventing an infinite loop if a single row exceeds slide height.
                 if rows_on_current_slide >= 1 and current_h + row_h > prs.slide_height:
