@@ -52,6 +52,15 @@ BOTTOM_PADDING_ROWS = 0
 # Increase above 1.0 to trigger overflow sooner (fewer rows per slide / more conservative).
 # Decrease below 1.0 to trigger overflow later (more rows per slide / more permissive).
 OVERFLOW_SENSITIVITY = 0.75
+# If True, export a PNG layout diagram per slide alongside the .pptx output.
+EXPORT_PNGS = False
+# If True, data rows use alternating backgrounds keyed on the left-most mapped
+# column: each time its value changes, the row band toggles between clear and
+# ALTERNATING_ROW_COLOR.  Band 0 (first group) = clear; band 1 = color.
+ALTERNATING_ROW_COLORS = True
+ALTERNATING_ROW_COLOR  = "#E7F1EA"
+# Column names whose text should be rendered bold in every data row.
+BOLD_COLUMNS = ["Goal"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -228,7 +237,7 @@ def estimate_row_height(row_data, col_map, col_widths, font_size, para_spacing_e
     return LINE_HEIGHT_EMU + (max_lines - 1) * PER_EXTRA_LINE + VERT_MARGIN_EMU
 
 
-def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
+def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT, row_color=None, bold_columns=None):
     """
     Build a brand-new <a:tr> element and append it to *table*.
 
@@ -257,6 +266,8 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
         else:
             text = ""
 
+        is_bold = bool(bold_columns and col_name and col_name in bold_columns)
+
         tc     = etree.SubElement(new_tr, f"{{{NS}}}tc")
         txBody = etree.SubElement(tc, f"{{{NS}}}txBody")
         etree.SubElement(txBody, f"{{{NS}}}bodyPr")
@@ -269,6 +280,8 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
             rPr.set("lang", "en-US")
             rPr.set("dirty", "0")
             rPr.set("sz", str(font_size * 100))
+            if is_bold:
+                rPr.set("b", "1")
             etree.SubElement(rPr, f"{{{NS}}}latin").set("typeface", "Arial")
             t   = etree.SubElement(r, f"{{{NS}}}t")
             t.text = text
@@ -280,11 +293,19 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
         endPr.set("lang", "en-US")
         endPr.set("dirty", "0")
         endPr.set("sz", str(font_size * 100))
+        if is_bold:
+            endPr.set("b", "1")
         etree.SubElement(endPr, f"{{{NS}}}latin").set("typeface", "Arial")
 
         tc_pr = etree.SubElement(tc, f"{{{NS}}}tcPr")
         for attr in ("marL", "marR", "marT", "marB"):
             tc_pr.set(attr, str(CELL_MARGIN_EMU))
+        if row_color is not None:
+            if row_color:
+                fill = etree.SubElement(tc_pr, f"{{{NS}}}solidFill")
+                etree.SubElement(fill, f"{{{NS}}}srgbClr").set("val", row_color.lstrip("#"))
+            else:
+                etree.SubElement(tc_pr, f"{{{NS}}}noFill")
 
     tbl.append(new_tr)
 
@@ -528,10 +549,15 @@ def process(
     strip_whitespace=STRIP_WHITESPACE,
     bottom_padding_rows=BOTTOM_PADDING_ROWS,
     overflow_sensitivity=OVERFLOW_SENSITIVITY,
+    export_pngs=EXPORT_PNGS,
+    alternating_row_colors=ALTERNATING_ROW_COLORS,
+    alternating_row_color=ALTERNATING_ROW_COLOR,
+    bold_columns=None,
 ):
     exclude_sheets = set(exclude_sheets or [])
     merge_columns  = list(merge_columns  or [])
     sort_columns   = list(sort_columns   or [])
+    bold_columns   = set(bold_columns    or [])
 
     wb  = openpyxl.load_workbook(excel_path)
     prs = Presentation(template_path)
@@ -664,6 +690,12 @@ def process(
         # Column widths (EMU) used by estimate_row_height for overflow detection.
         col_widths = {col_idx: table.columns[col_idx].width for col_idx in col_map}
 
+        # Alternating row colour state — reset per sheet, persists across
+        # continuation slides so band continuity is maintained across overflows.
+        _leftmost_col_name = col_map.get(min(col_map)) if col_map else None
+        _alt_band          = 0
+        _prev_leftmost_val = object()   # unique sentinel; first row never toggles
+
         # Bottom padding: reserve N full row-heights above the slide edge.
         # A full row = text line height + top/bottom cell margins, matching
         # what estimate_row_height returns for a single-line row.
@@ -709,6 +741,16 @@ def process(
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_idx, row_data in enumerate(data_rows):
+            # Compute row background colour for this row.
+            if alternating_row_colors and _leftmost_col_name:
+                cur_val = row_data.get(_leftmost_col_name)
+                if row_idx > 0 and cur_val != _prev_leftmost_val:
+                    _alt_band = 1 - _alt_band
+                _prev_leftmost_val = cur_val
+                row_color = alternating_row_color if _alt_band == 1 else ""
+            else:
+                row_color = None
+
             if overflow_slides:
                 if merge_spanned:
                     effective = {k: (None if (row_idx, k) in merge_spanned else v)
@@ -744,12 +786,12 @@ def process(
                     }
                     slide_layouts.append(current_layout)
 
-                append_data_row(current_table, col_map, row_data, font_size)
+                append_data_row(current_table, col_map, row_data, font_size, row_color, bold_columns)
                 current_h             += row_h
                 rows_on_current_slide += 1
                 current_layout["rows"].append(row_h)
             else:
-                append_data_row(current_table, col_map, row_data, font_size)
+                append_data_row(current_table, col_map, row_data, font_size, row_color, bold_columns)
 
         # Apply merges to the final (or only) table for this sheet.
         if merge_columns:
@@ -758,8 +800,9 @@ def process(
     prs.save(output_path)
     print(f"\nDone — {len(slides_created)} slide(s) created: {', '.join(slides_created)}")
     print(f"Output saved to: {output_path}")
-    print("\nExporting slide PNGs...")
-    export_slide_pngs(slide_layouts, prs.slide_width, prs.slide_height, output_path)
+    if export_pngs:
+        print("\nExporting slide PNGs...")
+        export_slide_pngs(slide_layouts, prs.slide_width, prs.slide_height, output_path)
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
@@ -783,4 +826,8 @@ if __name__ == "__main__":
         strip_whitespace=STRIP_WHITESPACE,
         bottom_padding_rows=BOTTOM_PADDING_ROWS,
         overflow_sensitivity=OVERFLOW_SENSITIVITY,
+        export_pngs=EXPORT_PNGS,
+        alternating_row_colors=ALTERNATING_ROW_COLORS,
+        alternating_row_color=ALTERNATING_ROW_COLOR,
+        bold_columns=BOLD_COLUMNS,
     )
