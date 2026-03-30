@@ -34,7 +34,7 @@ OUTPUT_FILE   = "output.pptx"
 # Text in the slide that gets replaced with the Excel tab name.
 NAME_PLACEHOLDER = "{{name}}"
 # Default font size (pt) for inserted data rows when none can be detected from the template.
-DEFAULT_FONT_SIZE_PT = 10
+DEFAULT_FONT_SIZE_PT = 11
 # If True, rows that would overflow the slide are placed on new continuation slides.
 OVERFLOW_SLIDES = True
 # Sheet names to skip entirely (exact match).
@@ -48,7 +48,11 @@ SORT_COLUMNS    = ["Goal", "Goal2", "Metric"]
 STRIP_WHITESPACE = True
 # Number of single-line-heights to reserve as blank space at the bottom of each
 # slide before triggering overflow.  0 = table may extend to the very bottom edge.
-BOTTOM_PADDING_ROWS = 2
+BOTTOM_PADDING_ROWS = 1
+# Multiplier applied to each row's estimated height before the overflow comparison.
+# Increase above 1.0 to trigger overflow sooner (fewer rows per slide / more conservative).
+# Decrease below 1.0 to trigger overflow later (more rows per slide / more permissive).
+OVERFLOW_SENSITIVITY = 0.7
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -58,10 +62,11 @@ NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 CELL_MARGIN_EMU = 45720   # 0.05 in = 45 720 EMU per side
 
 # Line-height multiplier used in row-height estimation.
-# Calibrated so that a single-line 11 pt row ≈ 303 000 EMU, matching
-# the actual PowerPoint auto-height (cell margins + Calibri line metrics
-# + PowerPoint's internal spacing).
-LINE_HEIGHT_MULTIPLIER = 1.5
+# Calibrated from actual PowerPoint-exported PNGs (1920×1080, scale 6350 EMU/px):
+#   single-line Arial 11 pt data row ≈ 56 px = 355 600 EMU
+#   → text portion = 355 600 − 2×45 720 = 264 160 EMU
+#   → 264 160 / (11 × 12 700) = 1.890 → round up to 1.95 for safety margin.
+LINE_HEIGHT_MULTIPLIER = 1.95
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -158,8 +163,18 @@ def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
             rPr.set("lang", "en-US")
             rPr.set("dirty", "0")
             rPr.set("sz", str(font_size * 100))
+            etree.SubElement(rPr, f"{{{NS}}}latin").set("typeface", "Arial")
             t   = etree.SubElement(r, f"{{{NS}}}t")
             t.text = text
+
+        # Always write endParaRPr so empty cells use the template font
+        # (Arial / detected size) instead of falling back to PowerPoint's
+        # table-style default (Aptos 18pt).
+        endPr = etree.SubElement(p, f"{{{NS}}}endParaRPr")
+        endPr.set("lang", "en-US")
+        endPr.set("dirty", "0")
+        endPr.set("sz", str(font_size * 100))
+        etree.SubElement(endPr, f"{{{NS}}}latin").set("typeface", "Arial")
 
         tc_pr = etree.SubElement(tc, f"{{{NS}}}tcPr")
         for attr in ("marL", "marR", "marT", "marB"):
@@ -204,9 +219,14 @@ def apply_vertical_merges(table, col_map, merge_cols):
     Vertically merge consecutive cells in the specified columns.
 
     Non-empty cells: merge runs of equal values as usual.
-    Empty cells: merge sub-groups that align with the immediately adjacent
-    right column's value groupings, so blank cells visually track the data
-    grouping to their right rather than staying as isolated single cells.
+    Empty cells in a column that has a MERGE_COLUMN to its left: merge
+    sub-groups that align with the left merge-column's groupings, so blank
+    cells visually track the parent group to their left.
+    Empty cells in the leftmost merge column: sub-divide by the immediate
+    right column's value groups (fallback behaviour).
+
+    Group IDs are pre-computed from raw text BEFORE any merges fire, because
+    merge operations clear continuation-cell text and would corrupt later reads.
 
     col_map   : {pptx_col_index: excel_col_name}
     merge_cols: list of excel column names to merge
@@ -234,6 +254,45 @@ def apply_vertical_merges(table, col_map, merge_cols):
                     txBody.remove(p)
                 etree.SubElement(txBody, f"{{{NS}}}p")
 
+    def _read_col_vals(col_idx):
+        vals = []
+        for tr in data_trs:
+            tcs   = tr.findall(f"{{{NS}}}tc")
+            t_el  = tcs[col_idx].find(f".//{{{NS}}}t") if col_idx < len(tcs) else None
+            vals.append((t_el.text or "").strip() if t_el is not None else "")
+        return vals
+
+    def _group_ids(vals):
+        """
+        Return a list where each entry is the start-index of that row's
+        consecutive-equal-value run.  Two rows share a group iff they have
+        the same group ID.
+        """
+        ids = [0] * len(vals)
+        i = 0
+        while i < len(vals):
+            j = i + 1
+            while j < len(vals) and vals[j] == vals[i]:
+                j += 1
+            for k in range(i, j):
+                ids[k] = i
+            i = j
+        return ids
+
+    # Identify merge-column pptx indices, sorted left → right.
+    merge_col_idxs = sorted(
+        idx for name in merge_cols
+        for idx in [name_to_idx.get(name)] if idx is not None
+    )
+    merge_col_set = set(merge_col_idxs)
+
+    # Pre-read every merge column's raw values and compute group IDs BEFORE
+    # any merges fire (merges clear continuation-cell text, corrupting reads).
+    pre_group_ids = {
+        col_idx: _group_ids(_read_col_vals(col_idx))
+        for col_idx in merge_col_set
+    }
+
     for col_name in merge_cols:
         col_idx = name_to_idx.get(col_name)
         if col_idx is None:
@@ -248,14 +307,18 @@ def apply_vertical_merges(table, col_map, merge_cols):
             value = (t_el.text or "").strip() if t_el is not None else ""
             cells.append([value, tc])
 
-        # Collect right-column values for smart empty-cell grouping.
-        right_col = col_idx + 1
-        right_vals = []
-        if right_col < num_tcs:
-            for tr in data_trs:
-                tcs   = tr.findall(f"{{{NS}}}tc")
-                t_el  = tcs[right_col].find(f".//{{{NS}}}t") if right_col < len(tcs) else None
-                right_vals.append((t_el.text or "").strip() if t_el is not None else "")
+        # Choose the reference grouping for empty-run sub-division.
+        # Prefer the nearest MERGE_COLUMN to the left so that empty cells
+        # track their parent group (the column that "owns" this hierarchy level).
+        # Fall back to the immediate right column for the leftmost merge column.
+        left_merge_idx = max(
+            (idx for idx in merge_col_set if idx < col_idx), default=None
+        )
+        if left_merge_idx is not None:
+            ref_gids = pre_group_ids[left_merge_idx]
+        else:
+            right_col = col_idx + 1
+            ref_gids  = _group_ids(_read_col_vals(right_col)) if right_col < num_tcs else []
 
         i = 0
         while i < len(cells):
@@ -267,14 +330,14 @@ def apply_vertical_merges(table, col_map, merge_cols):
             if value:
                 # Non-empty run: merge the whole group if span > 1.
                 _do_merge(cells, i, j)
-            elif right_vals and (j - i) > 1:
-                # Empty run: sub-divide by the right column's value groups
+            elif ref_gids and (j - i) > 1:
+                # Empty run: sub-divide by the reference column's groups
                 # and merge each sub-group independently.
                 k = i
                 while k < j:
-                    rv = right_vals[k]
-                    m  = k + 1
-                    while m < j and right_vals[m] == rv:
+                    gid = ref_gids[k]
+                    m   = k + 1
+                    while m < j and ref_gids[m] == gid:
                         m += 1
                     _do_merge(cells, k, m)
                     k = m
@@ -358,6 +421,7 @@ def process(
     sort_columns=None,
     strip_whitespace=STRIP_WHITESPACE,
     bottom_padding_rows=BOTTOM_PADDING_ROWS,
+    overflow_sensitivity=OVERFLOW_SENSITIVITY,
 ):
     exclude_sheets = set(exclude_sheets or [])
     merge_columns  = list(merge_columns  or [])
@@ -476,7 +540,7 @@ def process(
         # Header row height for overflow accounting (read from template).
         hdr_el     = existing_trs[0]
         hdr_h      = hdr_el.get("h", "")
-        fallback_h = int(font_size * 2 * 12700)
+        fallback_h = int(font_size * LINE_HEIGHT_MULTIPLIER * 12700) + 2 * CELL_MARGIN_EMU
         try:
             header_height = int(hdr_h) if hdr_h and int(hdr_h) > 0 else fallback_h
         except (ValueError, TypeError):
@@ -536,7 +600,7 @@ def process(
                                  for k, v in row_data.items()}
                 else:
                     effective = row_data
-                row_h = estimate_row_height(effective, col_map, col_widths, font_size)
+                row_h = estimate_row_height(effective, col_map, col_widths, font_size) * overflow_sensitivity
                 # Guard: only overflow when there is already at least one data row,
                 # preventing an infinite loop if a single row exceeds slide height.
                 if rows_on_current_slide >= 1 and current_h + row_h > slide_fill_height:
@@ -603,4 +667,5 @@ if __name__ == "__main__":
         sort_columns=SORT_COLUMNS,
         strip_whitespace=STRIP_WHITESPACE,
         bottom_padding_rows=BOTTOM_PADDING_ROWS,
+        overflow_sensitivity=OVERFLOW_SENSITIVITY,
     )
