@@ -17,7 +17,6 @@ Defaults:
 """
 
 import copy
-import math
 import sys
 from pathlib import Path
 
@@ -34,7 +33,7 @@ OUTPUT_FILE   = "output.pptx"
 # Text in the slide that gets replaced with the Excel tab name.
 NAME_PLACEHOLDER = "{{name}}"
 # Default font size (pt) for inserted data rows when none can be detected from the template.
-DEFAULT_FONT_SIZE_PT = 11
+DEFAULT_FONT_SIZE_PT = 10
 # If True, rows that would overflow the slide are placed on new continuation slides.
 OVERFLOW_SLIDES = True
 # Sheet names to skip entirely (exact match).
@@ -48,11 +47,11 @@ SORT_COLUMNS    = ["Goal", "Goal2", "Metric"]
 STRIP_WHITESPACE = True
 # Number of single-line-heights to reserve as blank space at the bottom of each
 # slide before triggering overflow.  0 = table may extend to the very bottom edge.
-BOTTOM_PADDING_ROWS = 1
+BOTTOM_PADDING_ROWS = 0
 # Multiplier applied to each row's estimated height before the overflow comparison.
 # Increase above 1.0 to trigger overflow sooner (fewer rows per slide / more conservative).
 # Decrease below 1.0 to trigger overflow later (more rows per slide / more permissive).
-OVERFLOW_SENSITIVITY = 0.7
+OVERFLOW_SENSITIVITY = 0.75
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -68,6 +67,11 @@ CELL_MARGIN_EMU = 45720   # 0.05 in = 45 720 EMU per side
 #   → 264 160 / (11 × 12 700) = 1.890 → round up to 1.95 for safety margin.
 LINE_HEIGHT_MULTIPLIER = 1.95
 
+# Per-character width weights (em units) for proportional-font wrap estimation.
+# Calibrated for Arial; applies well to similar sans-serif fonts.
+_NARROW_CHARS = frozenset(' ifjlrtI!|:;.,\'"`1()')
+_WIDE_CHARS   = frozenset('MWmw')
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +82,99 @@ def detect_font_size(tr):
         if sz:
             return int(sz) // 100
     return None
+
+
+def detect_para_spacing(trs):
+    """
+    Return total paragraph spacing in EMU from template data rows *trs*.
+
+    Sums the maximum spcBef and spcAft (in EMU) found across all <a:pPr>
+    elements.  Only fixed-point spacing (<a:spcPts>) is handled; percentage-
+    based spacing contributes 0.  Returns 0 when no explicit spacing is set.
+
+    Used to correct multi-line height estimates: PowerPoint applies spcBef/
+    spcAft once per paragraph, not once per visual wrapped line, so charging
+    the full LINE_HEIGHT_EMU per additional wrapped line over-estimates height.
+    """
+    spc_bef = spc_aft = 0
+    for tr in trs:
+        for pPr in tr.iter(f"{{{NS}}}pPr"):
+            for tag, is_bef in (
+                (f"{{{NS}}}spcBef", True),
+                (f"{{{NS}}}spcAft", False),
+            ):
+                parent = pPr.find(tag)
+                if parent is None:
+                    continue
+                pts_el = parent.find(f"{{{NS}}}spcPts")
+                if pts_el is not None:
+                    # spcPts val is in 1/100th of a point; 1/100 pt = 127 EMU.
+                    emu = int(pts_el.get("val", 0)) * 127
+                    if is_bef:
+                        spc_bef = max(spc_bef, emu)
+                    else:
+                        spc_aft = max(spc_aft, emu)
+    return spc_bef + spc_aft
+
+
+def _word_wrap_lines(text, usable_w_emu, font_size_pt):
+    """
+    Estimate the number of visual lines for *text* rendered in Arial
+    *font_size_pt* within *usable_w_emu* EMU of usable horizontal space.
+
+    Improvements over the previous naive ceil(len/cpl) approach:
+    - Breaks only at word boundaries (spaces), matching PowerPoint behaviour.
+    - Uses per-character width weights (_NARROW_CHARS / _WIDE_CHARS) instead
+      of a uniform 0.5-em average for more accurate CPL on business text.
+    - Words wider than the column are broken at character boundaries.
+    """
+    if not text:
+        return 1
+    words = text.split()
+    if not words:
+        return 1
+
+    em      = font_size_pt * 12700   # 1 em in EMU at this font size
+    space_w = 0.34 * em
+
+    def _word_w(w):
+        total = 0.0
+        for ch in w:
+            if ch in _NARROW_CHARS:
+                total += 0.34
+            elif ch in _WIDE_CHARS:
+                total += 0.72
+            elif ch.isupper():
+                total += 0.65
+            else:
+                total += 0.52
+        return total * em
+
+    lines = 1
+    cur   = 0.0
+
+    for word in words:
+        ww = _word_w(word)
+        if cur == 0:
+            if ww > usable_w_emu:
+                # Single word wider than the column — force character breaks.
+                q, r = divmod(ww, usable_w_emu)
+                lines += int(q)
+                cur    = r if r > 0 else usable_w_emu
+            else:
+                cur = ww
+        elif cur + space_w + ww <= usable_w_emu:
+            cur += space_w + ww
+        else:
+            lines += 1
+            if ww > usable_w_emu:
+                q, r = divmod(ww, usable_w_emu)
+                lines += int(q)
+                cur    = r if r > 0 else usable_w_emu
+            else:
+                cur = ww
+
+    return lines
 
 
 def get_table_shape(slide):
@@ -93,33 +190,42 @@ def cell_text(cell):
     return cell.text_frame.text.strip()
 
 
-def estimate_row_height(row_data, col_map, col_widths, font_size):
+def estimate_row_height(row_data, col_map, col_widths, font_size, para_spacing_emu=0):
     """
     Estimate the rendered height (EMU) of a table row from its text content.
 
-    Approximates word-wrap by dividing each cell's character count by the
-    number of characters that fit on one line (derived from column width and
-    average proportional-font character width ≈ 0.5 × font em-size).  Returns
-    the height for the tallest cell plus standard top/bottom cell margins.
+    Uses word-boundary wrapping and per-character width estimates (via
+    _word_wrap_lines) to count visual lines per cell, then returns the height
+    for the tallest cell plus standard top/bottom cell margins.
+
+    para_spacing_emu : spcBef + spcAft detected from template (EMU).
+        PowerPoint applies paragraph spacing once per paragraph, not once per
+        visual wrapped line.  For multi-line cells, each line beyond the first
+        should NOT be charged the full LINE_HEIGHT_EMU (which includes spacing);
+        only the raw line height (LINE_HEIGHT_EMU − para_spacing_emu) is added.
 
     col_widths : {pptx_col_index: column_width_in_EMU}
     """
-    CHAR_WIDTH_EMU  = font_size * 6350          # ≈ 0.5 em per character
     SIDE_MARGIN_EMU = CELL_MARGIN_EMU * 2       # left + right
     VERT_MARGIN_EMU = CELL_MARGIN_EMU * 2       # top  + bottom
     LINE_HEIGHT_EMU = int(font_size * LINE_HEIGHT_MULTIPLIER * 12700)
+    # Additional wrapped lines add only the raw line height — para spacing
+    # (spcBef/spcAft) is not repeated for each visual line in the same paragraph.
+    PER_EXTRA_LINE  = max(LINE_HEIGHT_EMU - para_spacing_emu, 1)
 
     max_lines = 1
     for col_idx, col_name in col_map.items():
         text = str(row_data.get(col_name) or "")
         if not text:
             continue
-        usable_w  = max((col_widths.get(col_idx) or 0) - SIDE_MARGIN_EMU, CHAR_WIDTH_EMU)
-        cpl       = max(1, int(usable_w / CHAR_WIDTH_EMU))
-        lines     = math.ceil(len(text) / cpl)
+        usable_w  = max((col_widths.get(col_idx) or 0) - SIDE_MARGIN_EMU,
+                        font_size * 12700)       # at least one em wide
+        lines     = _word_wrap_lines(text, usable_w, font_size)
         max_lines = max(max_lines, lines)
 
-    return max_lines * LINE_HEIGHT_EMU + VERT_MARGIN_EMU
+    # First line: full LINE_HEIGHT_EMU (calibrated value, includes any para spacing once).
+    # Each additional line: only the raw per-line height (para spacing not repeated).
+    return LINE_HEIGHT_EMU + (max_lines - 1) * PER_EXTRA_LINE + VERT_MARGIN_EMU
 
 
 def append_data_row(table, col_map, row_data, font_size=DEFAULT_FONT_SIZE_PT):
@@ -537,6 +643,12 @@ def process(
                 font_size = detected
                 break
 
+        # Detect paragraph spacing from template rows before removing them.
+        # spcBef/spcAft apply once per paragraph, not per visual wrapped line;
+        # knowing the value prevents estimate_row_height from double-counting
+        # paragraph spacing on each additional wrapped line in a multi-line cell.
+        para_spacing_emu = detect_para_spacing(existing_trs[1:])
+
         # Header row height for overflow accounting (read from template).
         hdr_el     = existing_trs[0]
         hdr_h      = hdr_el.get("h", "")
@@ -552,9 +664,12 @@ def process(
         # Column widths (EMU) used by estimate_row_height for overflow detection.
         col_widths = {col_idx: table.columns[col_idx].width for col_idx in col_map}
 
-        # Bottom padding: reserve N single-line-heights above the slide edge.
+        # Bottom padding: reserve N full row-heights above the slide edge.
+        # A full row = text line height + top/bottom cell margins, matching
+        # what estimate_row_height returns for a single-line row.
         line_height_emu   = int(font_size * LINE_HEIGHT_MULTIPLIER * 12700)
-        bottom_pad_emu    = bottom_padding_rows * line_height_emu
+        single_row_emu    = line_height_emu + CELL_MARGIN_EMU * 2
+        bottom_pad_emu    = bottom_padding_rows * single_row_emu
         slide_fill_height = prs.slide_height - bottom_pad_emu
 
         # Pre-compute which (row_index, col_name) pairs will be rendered as
@@ -600,7 +715,7 @@ def process(
                                  for k, v in row_data.items()}
                 else:
                     effective = row_data
-                row_h = estimate_row_height(effective, col_map, col_widths, font_size) * overflow_sensitivity
+                row_h = estimate_row_height(effective, col_map, col_widths, font_size, para_spacing_emu) * overflow_sensitivity
                 # Guard: only overflow when there is already at least one data row,
                 # preventing an infinite loop if a single row exceeds slide height.
                 if rows_on_current_slide >= 1 and current_h + row_h > slide_fill_height:
