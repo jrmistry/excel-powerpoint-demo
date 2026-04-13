@@ -45,6 +45,9 @@ The script that does the work is `generate_slides.py`.
 - [Troubleshooting](#troubleshooting)
 - [Final Mental Model](#final-mental-model)
 
+> 🌸 Sweet reminder: you do not need to read this all in order.
+> Pick one little path, like a bird hopping from branch to branch.
+
 <a id="first-note"></a>
 ## 💛 First Note
 
@@ -63,7 +66,10 @@ Good goal for day 1:
 
 That alone is already real progress.
 
-## 🐦 Friendly Bird Reminders
+> 🌷 Soft reminder: learning gently still counts.
+> You do not need to earn rest by struggling extra hard.
+
+## 🐦🌸🍓 Friendly Bird Reminders
 
 - 🐣 Starting counts.
 - 🪶 Short study sessions count.
@@ -71,6 +77,10 @@ That alone is already real progress.
 - 🦜 Copying commands carefully counts.
 - 🦉 Feeling confused for a moment is normal.
 - 🕊️ You do not have to be fast to be doing well.
+- 🌼 Taking a break and coming back counts.
+- 🍓 Asking for help counts.
+- 🍪 Tiny wins are still delicious wins.
+- 🫖 Tea-break thinking is still thinking.
 
 <a id="pick-your-path"></a>
 ## 🗺️ Pick Your Path
@@ -81,6 +91,9 @@ That alone is already real progress.
 | understand the files | section `6` |
 | learn Python basics from this project | `Tiny Python Vocabulary`, section `10`, section `11`, and section `12` |
 | understand the full execution flow | the Mermaid diagrams near the end |
+
+> 🐥 There is no wrong path here.
+> Choosing the easier path first is smart, not lazy.
 
 <a id="adhd-friendly-map"></a>
 ## 🧭 ADHD-Friendly Map
@@ -131,6 +144,9 @@ Just use them as a reference.
 | constant | A variable that is meant to stay fixed |
 | loop | Code that repeats over a list of things |
 
+> 🌼 If these words feel new, that is completely okay.
+> Every programmer once had to learn what `function`, `import`, and `argument` meant too.
+
 <a id="big-picture-first"></a>
 ## 🎨 Big Picture First
 
@@ -138,9 +154,17 @@ Before thinking about Python details, this is the whole project in one picture:
 
 ```mermaid
 flowchart LR
-    A[Excel data file] --> C[Python script]
-    B[PowerPoint template] --> C
-    C --> D[Finished PowerPoint file]
+    A[📊 Excel data file] --> C[🐍 Python script]
+    B[🎞️ PowerPoint template] --> C
+    C --> D[✅ Finished PowerPoint file]
+
+    classDef input fill:#FFF7D6,stroke:#D4A72C,stroke-width:2px,color:#5C4A00
+    classDef process fill:#DFF3FF,stroke:#4A8FCF,stroke-width:2px,color:#123A56
+    classDef output fill:#E7F7E7,stroke:#5A9A5A,stroke-width:2px,color:#234723
+    class A,B input
+    class C process
+    class D output
+    linkStyle default stroke:#7AA6C2,stroke-width:2px
 ```
 
 If that picture makes sense, the project already makes sense.
@@ -172,15 +196,41 @@ You need:
 
 This repo already includes `data.xlsx` and `template.pptx`, so you can run the default command right away after setup.
 
+> 🍯 Gathering your tools is part of the work.
+> Getting ready is not “behind.” Getting ready is progress.
+
+### ⌨️ Tiny Keyboard Cheat Sheet
+
+| What you want to do | macOS | Windows |
+| --- | --- | --- |
+| Open Command Palette in VS Code | `Cmd + Shift + P` | `Ctrl + Shift + P` |
+| Open a file by name in VS Code | `Cmd + P` | `Ctrl + P` |
+| Confirm a command or choice | `Return` | `Enter` |
+| Move through a list | arrow keys | arrow keys |
+
+> 🌸 Keyboard shortcuts are optional, not required.
+> Learning one or two at a time is plenty.
+
 <a id="open-the-code-editor"></a>
 ## 1. 🐣 Open the Code Editor
 
 These steps assume VS Code, but the idea is the same in other editors.
 
+### Mouse way
+
 1. Open VS Code.
 2. Click **File → Open Folder**.
 3. Choose this project folder.
 4. Wait for the files to appear in the left sidebar.
+
+### Keyboard way
+
+1. Open VS Code.
+2. Press `Cmd + Shift + P` on macOS, or `Ctrl + Shift + P` on Windows.
+3. Type `File: Open Folder`.
+4. Press `Return` on macOS, or `Enter` on Windows.
+5. Use the arrow keys to pick the project folder.
+6. Press `Return` on macOS, or `Enter` on Windows.
 
 You should see files like:
 
@@ -189,17 +239,39 @@ You should see files like:
 - `data.xlsx`
 - `template.pptx`
 
+Optional keyboard tip:
+
+- Press `Cmd + P` on macOS, or `Ctrl + P` on Windows, to quickly open a file by name.
+- You can type `generate_slides.py` or `README.md` and press `Return` or `Enter`.
+
 > 🪶 Nice work: opening the right folder means you are oriented.
 > That is a real part of programming.
+> 🌸 A calm start matters.
+> A tidy beginning makes everything after this easier.
 
 <a id="open-the-terminal"></a>
 ## 2. 🐤 Open the Terminal
 
 In VS Code:
 
+### Mouse way
+
 1. Click **Terminal → New Terminal**
 2. A terminal panel opens at the bottom
 3. Make sure you are inside this project folder
+
+### Keyboard way
+
+Option 1:
+
+1. Press `Cmd + Shift + P` on macOS, or `Ctrl + Shift + P` on Windows.
+2. Type `Terminal: Create New Terminal`.
+3. Press `Return` on macOS, or `Enter` on Windows.
+
+Option 2:
+
+- Common VS Code shortcut: press `Control + \`` on macOS, or `Ctrl + \`` on Windows.
+- On some keyboards this key is the backtick key, usually above `Tab`.
 
 You can check with:
 
@@ -207,8 +279,12 @@ You can check with:
 pwd
 ```
 
+After typing `pwd`, press `Return` on macOS, or `Enter` on Windows.
+
 > 🐦 Good job: if your terminal is open, you are ready to talk to your computer directly.
 > That is a big beginner step.
+> 🍓 This part can feel intimidating at first.
+> Opening it anyway is brave.
 
 <a id="create-a-virtual-environment"></a>
 ## 3. 🪺 Create a Virtual Environment
@@ -229,8 +305,11 @@ python3 -m venv .venv
 
 This creates a folder named `.venv`.
 
+After typing the command, press `Return` on macOS, or `Enter` on Windows.
+
 > 🐣 Tiny victory: you just created a safe practice space for this project.
 > That is exactly what good Python setup looks like.
+> 🌷 Cozy thought: this is like setting a place at the table just for this project.
 
 <a id="activate-the-virtual-environment"></a>
 ## 4. 🦜 Activate the Virtual Environment
@@ -241,11 +320,15 @@ On macOS or Linux:
 source .venv/bin/activate
 ```
 
+Then press `Return`.
+
 On Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
 ```
+
+Then press `Enter`.
 
 When it works, your terminal usually shows something like `(.venv)` at the start of the line.
 
@@ -253,10 +336,13 @@ Optional VS Code step:
 
 1. Press `Cmd + Shift + P` on macOS, or `Ctrl + Shift + P` on Windows/Linux
 2. Search for `Python: Select Interpreter`
-3. Choose the interpreter inside `.venv`
+3. Use the arrow keys to choose the interpreter inside `.venv`
+4. Press `Return` on macOS, or `Enter` on Windows/Linux
 
 > 🪶 Great job: once you see `(.venv)`, your project is using its own Python environment.
 > That is a really useful skill.
+> 🫖 If it takes a try or two, that is still normal.
+> Repeating a command is part of learning, not a failure.
 
 <a id="install-the-requirements"></a>
 ## 5. 🦉 Install the Requirements
@@ -270,6 +356,8 @@ Install them with:
 ```bash
 pip install -r requirements.txt
 ```
+
+After typing the command, press `Return` on macOS, or `Enter` on Windows.
 
 ### What the requirements do
 
@@ -286,6 +374,8 @@ Optional note:
 
 > 🐥 Another win: installing requirements means the project now has the tools it needs.
 > You are building a real working environment.
+> 🍪 This is one of those hidden “grown-up developer” skills.
+> It may feel small, but it is not small.
 
 <a id="why-the-repo-is-set-up-this-way"></a>
 ## 6. 🕊️ Why the Repo Is Set Up This Way
@@ -316,6 +406,8 @@ That separation is nice because:
 
 > 🦜 Understanding the file roles is a programming win too.
 > You are learning structure, not just commands.
+> 🌻 Structure is comforting.
+> When the parts have clear jobs, the whole project gets easier to trust.
 
 <a id="how-to-run-the-code"></a>
 ## 7. 🐦 How to Run the Code
@@ -325,6 +417,13 @@ If you keep the default file names, run:
 ```bash
 python3 generate_slides.py
 ```
+
+Then press `Return` on macOS, or `Enter` on Windows.
+
+Keyboard tip:
+
+- Press the `up arrow` in the terminal to bring back your last command.
+- This is very helpful when you want to run the script again.
 
 That uses these built-in defaults:
 
@@ -340,6 +439,8 @@ You can also pass all three file names yourself:
 python3 generate_slides.py data.xlsx template.pptx output.pptx
 ```
 
+Then press `Return` on macOS, or `Enter` on Windows.
+
 ### What each part of the command means
 
 | Part | Meaning |
@@ -351,6 +452,8 @@ python3 generate_slides.py data.xlsx template.pptx output.pptx
 | `output.pptx` | The name of the finished PowerPoint file |
 
 > 🐣 If you can read that command left to right, you are already getting more comfortable with the terminal.
+> 🍓 Even if you copy-paste it for now, that still counts.
+> Understanding grows with repetition.
 
 <a id="what-happens-when-you-run-it"></a>
 ## 8. 🐥 What Happens When You Run It
@@ -395,6 +498,8 @@ Output saved to: output.pptx
 > ✅ You can stop here for today if you want.
 > Everything below is the "learn how the code works" part.
 > You can come back later when your brain has more energy.
+> 🌸 You are allowed to be proud here.
+> A lot of beginners never make it to a working output file on their first project.
 
 <a id="important-settings"></a>
 ## 9. ⚙️ Important Settings in `generate_slides.py`
@@ -420,6 +525,9 @@ That block is useful because it lets you change behavior **without** rewriting t
 | `ALTERNATING_ROW_COLOR` | `#E7F1EA` | The tint used for alternating row bands |
 | `BOLD_COLUMNS` | `["Goal"]` | Makes the `Goal` column bold in data rows |
 
+> 🌼 Reading a settings block is a lovely beginner skill.
+> It teaches you that code is often more configurable than it first looks.
+
 <a id="code-walkthrough"></a>
 ## 10. 🧠 Code Walkthrough
 
@@ -444,16 +552,30 @@ You do **not** need to fully understand:
 
 > 🪶 Gentle reminder: skimming counts.
 > You do not need perfect understanding on the first read.
+> 🫖 It is completely fine to read this with a snack and a slow pace.
+> Slow understanding lasts longer.
 
 ### Visual layout of the Python file
 
 ```mermaid
 flowchart TD
-    A[Top comment and usage note] --> B[Imports]
-    B --> C[Settings and constants]
-    C --> D[Small helper functions]
-    D --> E[Main process function]
-    E --> F[Main block at the bottom]
+    A[📝 Top comment and usage note] --> B[🧰 Imports]
+    B --> C[⚙️ Settings and constants]
+    C --> D[🧩 Small helper functions]
+    D --> E[🚀 Main process function]
+    E --> F[▶️ Main block at the bottom]
+
+    classDef note fill:#FFF7D6,stroke:#D4A72C,stroke-width:2px,color:#5C4A00
+    classDef tools fill:#E7F7E7,stroke:#5A9A5A,stroke-width:2px,color:#234723
+    classDef config fill:#FFEFD6,stroke:#D98C2B,stroke-width:2px,color:#5F3A00
+    classDef helper fill:#FCE8F3,stroke:#C86EA0,stroke-width:2px,color:#5F2140
+    classDef main fill:#DFF3FF,stroke:#4A8FCF,stroke-width:2px,color:#123A56
+    class A note
+    class B tools
+    class C config
+    class D helper
+    class E,F main
+    linkStyle default stroke:#7AA6C2,stroke-width:2px
 ```
 
 | Part of the file | Why it exists |
@@ -482,6 +604,8 @@ That setup is useful because:
 - `process()` can be reused or tested separately.
 
 > 🐣 Nice job: if you understand that the bottom block starts the script and `process()` does the work, you already understand a very important Python pattern.
+> 🌷 That is real code-reading progress.
+> Please give yourself credit for it.
 
 <a id="imports"></a>
 ## 11. 🧩 Imports: What They Do
@@ -507,6 +631,8 @@ A good mental model is:
 - then run the main workflow
 
 > 🐦 Tiny win: if "imports bring in tools" makes sense, you learned something foundational.
+> 🍯 Foundational ideas are worth celebrating.
+> They are the little seeds that make everything else easier later.
 
 <a id="helper-functions"></a>
 ## 12. 🛠️ Helper Functions Explained
@@ -537,6 +663,8 @@ That makes the code easier to read, debug, and change.
 - They make future changes safer.
 
 > 🐥 Important beginner win: understanding that functions are small reusable jobs is one of the best things to learn early in Python.
+> 🌸 This is one of those “click” moments that makes code feel less scary.
+> Smaller pieces are kinder to the brain.
 
 <a id="the-process-function"></a>
 ## 13. 🏗️ The `process()` Function
@@ -567,6 +695,8 @@ Why this function is set up this way:
 - It uses helpers for the tricky details.
 
 > 🦜 Big picture win: if you can say "`process()` is the main workflow", then you are reading code structurally, which is excellent progress.
+> 🌻 That means you are not just staring at code anymore.
+> You are starting to navigate it.
 
 <a id="the-entry-point"></a>
 ## 14. 🚀 The Entry Point at the Bottom
@@ -586,6 +716,8 @@ That is a clean pattern because:
 
 > 🪶 You are doing well if this part feels more readable than before.
 > That means the structure is starting to click.
+> 🍓 Familiarity grows quietly.
+> Sometimes learning feels like “I still do not know enough,” even while you are clearly improving.
 
 ### Tiny experiments you can try next
 
@@ -599,16 +731,20 @@ python3 generate_slides.py data.xlsx template.pptx my_output.pptx
 
 Why this helps:
 It teaches that scripts can take arguments.
+> 🐣 Tiny celebration: changing an argument is already you interacting with code, not just observing it.
 
 2. Remove `"Bob"` from `EXCLUDE_SHEETS` and run the script again.
 
 Why this helps:
 It teaches that changing a constant changes the script's behavior.
+> 🌼 This is how confidence grows: one safe change, one new result.
 
 3. Change `ALTERNATING_ROW_COLOR` to another hex color.
 
 Why this helps:
 It shows that Python settings can control visual output.
+> 🌷 Pretty changes are real learning too.
+> Joy is a valid reason to experiment.
 
 4. Turn `EXPORT_PNGS` from `False` to `True`.
 
@@ -616,6 +752,7 @@ Why this helps:
 It teaches that a Boolean setting can turn a feature on or off.
 
 > 🐣 Brave beginner bonus: changing one small thing and running the script again is exactly how confidence grows.
+> 🍪 And yes, you absolutely deserve a treat after making experiments work.
 
 <a id="mermaid-diagrams"></a>
 ## 15. 🗺️ Mermaid Diagrams
@@ -624,16 +761,27 @@ It teaches that a Boolean setting can turn a feature on or off.
 
 This first diagram shows the full setup path plus the high-level runtime flow.
 
+> 🕊️ This one is here to make the journey feel more visible.
+> Seeing the path can make the path feel gentler.
+
+Color guide:
+
+- soft yellow = setup steps
+- soft blue = normal workflow
+- soft peach = decision points
+- soft green = finished output
+- soft pink = warnings or skip paths
+
 ```mermaid
 flowchart TD
-    A[Open code editor] --> B[Open this repo folder]
-    B --> C[Open terminal]
-    C --> D[Create virtual environment]
-    D --> E[Activate virtual environment]
-    E --> F[Install packages]
-    F --> G[Run script]
+    A[🐣 Open code editor] --> B[📂 Open repo folder]
+    B --> C[💻 Open terminal]
+    C --> D[🪺 Create virtual environment]
+    D --> E[🦜 Activate virtual environment]
+    E --> F[📦 Install packages]
+    F --> G[▶️ Run script]
 
-    G --> H[Main block]
+    G --> H[🚀 Main block]
     H --> I[Read CLI args or use defaults]
     I --> J[Check that Excel and template files exist]
     J --> K[Call process function]
@@ -642,7 +790,7 @@ flowchart TD
     L --> M[Load PowerPoint with python-pptx]
     M --> N{Loop through each worksheet}
 
-    N -->|Sheet excluded| O[Skip sheet]
+    N -->|Sheet excluded| O[⚠️ Skip sheet]
     N -->|Sheet kept| P[Read headers and rows]
     P --> Q[Trim whitespace and sort rows]
     Q --> R[Create first slide or continuation slide]
@@ -658,8 +806,20 @@ flowchart TD
     Z --> N
 
     O --> N
-    N --> AA[Save output.pptx]
-    AA --> AB[Optional PNG export if enabled]
+    N --> AA[✅ Save output.pptx]
+    AA --> AB[🖼️ Optional PNG export]
+
+    classDef setup fill:#FFF7D6,stroke:#D4A72C,stroke-width:2px,color:#5C4A00
+    classDef run fill:#DFF3FF,stroke:#4A8FCF,stroke-width:2px,color:#123A56
+    classDef decide fill:#FFEFD6,stroke:#D98C2B,stroke-width:2px,color:#5F3A00
+    classDef output fill:#E7F7E7,stroke:#5A9A5A,stroke-width:2px,color:#234723
+    classDef warn fill:#FCE8F3,stroke:#C86EA0,stroke-width:2px,color:#5F2140
+    class A,B,C,D,E,F,G setup
+    class H,I,J,K,L,M,P,Q,R,S,T,U,V,X,Y,Z,AB run
+    class N,W decide
+    class O warn
+    class AA output
+    linkStyle default stroke:#7AA6C2,stroke-width:2px
 ```
 
 ### Diagram 2: Detailed Runtime Diagram
@@ -672,10 +832,11 @@ It is here when you want the deeper view.
 
 > 🦉 This diagram is for curiosity, not pressure.
 > You do not need to memorize it.
+> 🌸 Looking at it for ten seconds and moving on is perfectly valid.
 
 ```mermaid
 flowchart TD
-    A[Start script] --> B[Main block runs]
+    A[🐣 Start script] --> B[🚀 Main block runs]
     B --> C[Read command line arguments]
     C --> D[Use defaults if args are missing]
     D --> E[Check Excel file exists]
@@ -685,20 +846,20 @@ flowchart TD
     G --> H[Prepare config values]
     H --> I[Load workbook with openpyxl]
     I --> J[Load presentation]
-    J --> K{Does template contain at least one slide?}
-    K -->|No| L[Exit with error]
+    J --> K{Template has at least one slide?}
+    K -->|No| L[❌ Exit with error]
     K -->|Yes| M[Snapshot template slide and shape tree]
     M --> N[Read workbook sheet names]
     N --> O{For each sheet}
 
     O --> P{Is sheet excluded}
-    P -->|Yes| Q[Print skip message]
+    P -->|Yes| Q[⚠️ Print skip message]
     Q --> O
     P -->|No| R[Open worksheet]
 
     R --> S[Read headers from row 1]
     S --> T{Any headers found?}
-    T -->|No| U[Print skip message]
+    T -->|No| U[⚠️ Print skip message]
     U --> O
     T -->|Yes| V[Read non-empty data rows]
     V --> W{Trim whitespace}
@@ -718,12 +879,12 @@ flowchart TD
 
     AF --> AG[Find first table on slide]
     AG --> AH{Table found?}
-    AH -->|No| AI[Warn and skip sheet]
+    AH -->|No| AI[⚠️ Warn and skip sheet]
     AI --> O
     AH -->|Yes| AJ[Read PowerPoint header row]
     AJ --> AK[Match PowerPoint headers to Excel headers]
     AK --> AL{Any matching columns?}
-    AL -->|No| AM[Warn and skip sheet]
+    AL -->|No| AM[⚠️ Warn and skip sheet]
     AM --> O
     AL -->|Yes| AN[Detect font size from template rows]
     AN --> AO[Detect paragraph spacing]
@@ -746,13 +907,13 @@ flowchart TD
 
     BA -->|Yes| BC[Build effective row for height estimate]
     BC --> BD[Estimate row height]
-    BD --> BE{Would row overflow current slide and there is already a row present?}
+    BD --> BE{Would row overflow current slide?}
     BE -->|No| BF[Append row to current table]
     BF --> BG[Update running height and layout info]
     BG --> AY
 
     BE -->|Yes| BH{Use merged columns}
-    BH -->|Yes| BI[Apply vertical merges to current table before spilling]
+    BH -->|Yes| BI[Apply vertical merges before spilling]
     BH -->|No| BJ[Skip pre-spill merge step]
     BI --> BK[Create continuation slide]
     BJ --> BK
@@ -765,20 +926,32 @@ flowchart TD
     BQ --> AY
 
     AY -->|No more rows| BR{Use merged columns}
-    BR -->|Yes| BS[Apply vertical merges to final table for this sheet]
+    BR -->|Yes| BS[Apply vertical merges to final table]
     BR -->|No| BT[Skip merge step]
     BS --> O
     BT --> O
 
-    O -->|No more sheets| BU[Save presentation to output path]
+    O -->|No more sheets| BU[✅ Save presentation to output path]
     BU --> BV{Export PNG layouts}
     BV -->|Yes| BW[Start PNG export]
-    BV -->|No| BX[Finish]
+    BV -->|No| BX[✅ Finish]
     BW --> BY{Is Pillow installed?}
-    BY -->|No| BZ[Warn and skip PNG export]
-    BY -->|Yes| CA[Draw one PNG layout per slide]
+    BY -->|No| BZ[⚠️ Warn and skip PNG export]
+    BY -->|Yes| CA[🖼️ Draw one PNG layout per slide]
     BZ --> BX
     CA --> BX
+
+    classDef setup fill:#FFF7D6,stroke:#D4A72C,stroke-width:2px,color:#5C4A00
+    classDef run fill:#DFF3FF,stroke:#4A8FCF,stroke-width:2px,color:#123A56
+    classDef decide fill:#FFEFD6,stroke:#D98C2B,stroke-width:2px,color:#5F3A00
+    classDef output fill:#E7F7E7,stroke:#5A9A5A,stroke-width:2px,color:#234723
+    classDef warn fill:#FCE8F3,stroke:#C86EA0,stroke-width:2px,color:#5F2140
+    class A,B,C,D,E,F,G,H setup
+    class I,J,M,N,R,S,V,X,Y,AA,AB,AD,AE,AF,AJ,AK,AN,AO,AP,AQ,AR,AS,AV,AW,AX,AZ,BB,BC,BD,BF,BG,BI,BJ,BK,BL,BM,BN,BO,BP,BQ,BS,BT,BW,CA run
+    class K,O,P,T,W,Z,AC,AH,AL,AU,AY,BA,BE,BH,BR,BV,BY decide
+    class L,Q,U,AI,AM,BZ warn
+    class BU,BX output
+    linkStyle default stroke:#7AA6C2,stroke-width:2px
 ```
 
 <a id="troubleshooting"></a>
@@ -793,6 +966,11 @@ flowchart TD
 | A worksheet is missing from the output | It may be listed in `EXCLUDE_SHEETS` | Check the config block near the top of `generate_slides.py` |
 | You want PNG layout previews | `EXPORT_PNGS` is still off | Set `EXPORT_PNGS = True` and install `Pillow` |
 
+> 🦉 Seeing an error message does not mean you are bad at this.
+> It usually just means the computer is finally telling you what it needs.
+> 🌷 Debugging is not a detour from learning.
+> Debugging is learning.
+
 <a id="final-mental-model"></a>
 ## 17. ✅ Final Mental Model
 
@@ -803,3 +981,7 @@ If you remember only one thing, remember this:
 - Python connects the two.
 
 That is the whole idea of this repo.
+
+> 🐣 If you understand that sentence, you have already learned something real.
+> 🌸 You do not have to become an expert overnight.
+> 🍓 Gentle, curious, repeated practice is more than enough.
