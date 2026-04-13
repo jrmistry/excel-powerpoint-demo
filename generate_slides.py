@@ -52,7 +52,9 @@ BOTTOM_PADDING_ROWS = 0
 # Increase above 1.0 to trigger overflow sooner (fewer rows per slide / more conservative).
 # Decrease below 1.0 to trigger overflow later (more rows per slide / more permissive).
 OVERFLOW_SENSITIVITY = 0.75
-# If True, export a PNG layout diagram per slide alongside the .pptx output.
+# Master switch for optional PNG layout previews.
+# False = do not write any PNG files.
+# True  = write one PNG layout preview per generated slide.
 EXPORT_PNGS = False
 # If True, data rows use alternating backgrounds keyed on the left-most mapped
 # column: each time its value changes, the row band toggles between clear and
@@ -574,7 +576,7 @@ def process(
     print(f"Sheets found: {', '.join(sheets)}\n")
 
     slides_created   = []
-    slide_layouts    = []   # collected for PNG export
+    slide_layouts    = [] if export_pngs else None
     first_slide_used = False
 
     for sheet_name in sheets:
@@ -731,13 +733,15 @@ def process(
 
         slides_created.append(sheet_name)
         rows_on_current_slide = 0
-        current_layout = {
-            "name": sheet_name, "rows": [],
-            "table_left": table_shape.left, "table_top": current_table_top,
-            "table_width": table_shape.width, "header_height": header_height,
-            "fill_height": slide_fill_height if overflow_slides else prs.slide_height,
-        }
-        slide_layouts.append(current_layout)
+        current_layout = None
+        if export_pngs:
+            current_layout = {
+                "name": sheet_name, "rows": [],
+                "table_left": table_shape.left, "table_top": current_table_top,
+                "table_width": table_shape.width, "header_height": header_height,
+                "fill_height": slide_fill_height if overflow_slides else prs.slide_height,
+            }
+            slide_layouts.append(current_layout)
 
         # Insert data rows, spilling onto continuation slides when needed.
         for row_idx, row_data in enumerate(data_rows):
@@ -778,18 +782,21 @@ def process(
 
                     current_h             = current_table_top + header_height
                     rows_on_current_slide = 0
-                    current_layout = {
-                        "name": cont_label, "rows": [],
-                        "table_left": ovf_shape.left, "table_top": current_table_top,
-                        "table_width": ovf_shape.width, "header_height": header_height,
-                        "fill_height": slide_fill_height,
-                    }
-                    slide_layouts.append(current_layout)
+                    current_layout = None
+                    if export_pngs:
+                        current_layout = {
+                            "name": cont_label, "rows": [],
+                            "table_left": ovf_shape.left, "table_top": current_table_top,
+                            "table_width": ovf_shape.width, "header_height": header_height,
+                            "fill_height": slide_fill_height,
+                        }
+                        slide_layouts.append(current_layout)
 
                 append_data_row(current_table, col_map, row_data, font_size, row_color, bold_columns)
                 current_h             += row_h
                 rows_on_current_slide += 1
-                current_layout["rows"].append(row_h)
+                if export_pngs:
+                    current_layout["rows"].append(row_h)
             else:
                 append_data_row(current_table, col_map, row_data, font_size, row_color, bold_columns)
 
