@@ -100,7 +100,7 @@ That alone is already real progress.
 
 You do **not** need to understand the whole repo at once.
 
-Start here:
+The process will look like the following:
 
 - [ ] Open the folder in your code editor
 - [ ] Open the terminal
