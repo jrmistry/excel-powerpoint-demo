@@ -3,3 +3,13 @@
 
 # macOS
 .DS_Store
+
+# Python virtual environment
+venv/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Generated PowerPoint outputs (built by the script / notebook)
+output.pptx
+output_step*.pptx
